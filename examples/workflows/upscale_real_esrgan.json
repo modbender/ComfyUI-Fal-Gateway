@@ -8,7 +8,7 @@
   "2": {
     "class_type": "FalUpscale",
     "inputs": {
-      "model_id": "fal-ai/esrgan",
+      "model_id": "[fal-ai] Upscale Images — fal-ai/esrgan",
       "prompt": "",
       "image": ["1", 0]
     }

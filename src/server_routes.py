@@ -1,9 +1,11 @@
 """HTTP routes for the Fal-Gateway.
 
-POST /fal_gateway/refresh   Delete the on-disk catalog cache and kick off a
-                            background refetch. Returns 200 immediately —
-                            the refetch progresses asynchronously.
-GET  /fal_gateway/health    Diagnostic: FAL_KEY presence + cached model count.
+POST /fal_gateway/refresh                Delete the on-disk catalog cache and kick off a
+                                         background refetch. Returns 200 immediately.
+GET  /fal_gateway/health                 Diagnostic: FAL_KEY presence + cached model count.
+GET  /fal_gateway/schema/{model_id_b64}  Return the WidgetSpec list for a specific model
+                                         (used by the frontend to render per-model widgets
+                                         dynamically when the model dropdown changes).
 
 Routes are registered against `PromptServer.instance.routes` in `__init__.py`.
 """
@@ -11,6 +13,8 @@ Routes are registered against `PromptServer.instance.routes` in `__init__.py`.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 import os
 
@@ -21,6 +25,22 @@ from . import model_registry
 
 _log = logging.getLogger("fal_gateway.routes")
 _PLACEHOLDER_KEY = "<your_fal_api_key_here>"
+
+
+def decode_model_id_b64(b64: str) -> str:
+    """URL-safe base64 → model_id, restoring stripped padding if needed.
+
+    JavaScript's btoa() commonly outputs URL-safe base64 with padding stripped
+    (per RFC 4648 §5 / §3.2). Python's `base64.urlsafe_b64decode` is strict
+    about padding. This helper re-adds whatever padding is missing before
+    decoding. Raises `ValueError` on truly invalid input.
+    """
+    padding_needed = (-len(b64)) % 4
+    padded = b64 + ("=" * padding_needed)
+    try:
+        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        raise ValueError(f"invalid base64: {exc}") from exc
 
 
 def register_routes(routes: web.RouteTableDef) -> None:
@@ -64,6 +84,45 @@ def register_routes(routes: web.RouteTableDef) -> None:
                     "(existing placed nodes keep their old dropdown options "
                     "until you re-add them or restart)."
                 ),
+            }
+        )
+
+    @routes.get("/fal_gateway/schema/{model_id_b64}")
+    async def get_schema(request: web.Request) -> web.Response:
+        """Return parsed WidgetSpec list + shape for one model.
+
+        The frontend hits this when the user changes the model dropdown so it can
+        rebuild the per-model widgets (duration, aspect_ratio, resolution, seed,
+        cfg_scale, negative_prompt, etc.) live without a ComfyUI restart.
+        """
+        b64 = request.match_info["model_id_b64"]
+        try:
+            model_id = decode_model_id_b64(b64)
+        except ValueError:
+            return web.json_response(
+                {"ok": False, "error": "invalid base64 model_id"}, status=400
+            )
+
+        # `model_id` is a display string from the dropdown ("[provider] Name — id").
+        try:
+            entry = model_registry.resolve(model_id)
+        except ValueError as exc:
+            return web.json_response(
+                {"ok": False, "error": f"malformed model_id: {exc}"}, status=400
+            )
+        if entry is None:
+            return web.json_response(
+                {"ok": False, "error": f"unknown model_id: {model_id}"}, status=404
+            )
+
+        return web.json_response(
+            {
+                "ok": True,
+                "model_id": entry.id,
+                "display_name": entry.display_name,
+                "category": entry.category,
+                "shape": entry.shape,
+                "widgets": [w.to_dict() for w in entry.widgets],
             }
         )
 

@@ -8,7 +8,7 @@
   "2": {
     "class_type": "FalGatewayI2V",
     "inputs": {
-      "model_id": "bytedance/seedance-2.0/image-to-video",
+      "model_id": "[bytedance] Seedance 2 Image to Video — bytedance/seedance-2.0/image-to-video",
       "prompt": "REPLACE THIS — describe the motion you want, e.g. 'subtle camera push-in, gentle wind through fur, soft cinematic light'",
       "image": ["1", 0]
     }

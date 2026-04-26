@@ -1,14 +1,17 @@
 // ComfyUI-Fal-Gateway frontend extension.
 //
-// Initial responsibility (M3-partial / M4-prelude):
-//   * On the FalGatewayRef2V node, reflect the `image_count` widget value by
-//     adding/removing image_N sockets (1..4) in node.inputs. This implements the
-//     "switch-like" pattern requested: only the sockets you'll use are visible.
-//
-// Larger M4 work (per-model dynamic widgets driven by OpenAPI schemas) lands here
-// later; for now this file is intentionally narrow.
+// Three responsibilities:
+//   1. Per-model dynamic widget rendering (M4) — fetch each model's WidgetSpec
+//      list from /fal_gateway/schema/<id_b64> and rebuild the node's widgets
+//      whenever the user picks a different model. Static widgets (model_id,
+//      prompt, image_count) and image SOCKETS are left alone.
+//   2. Reference-style nodes (Ref2V, Ref2I): reflect the `image_count` widget
+//      value by adding/removing image_N sockets (1..4) — switch pattern.
+//   3. "Fal-Gateway: refresh catalog cache" right-click menu option on every
+//      Fal-Gateway node.
 
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 // Reference-style nodes that have a dynamic image_count switch.
 const REF_NODES = new Set(["FalGatewayRef2V", "FalGatewayRef2I"]);
@@ -32,7 +35,12 @@ function syncImageSockets(node, count) {
       node.addInput(`${IMAGE_PREFIX}${n}`, "IMAGE");
     }
   }
-  node.setSize(node.computeSize());
+  // Grow only — never shrink below the user's manual resize. computeSize()
+  // returns the MINIMUM required for current sockets/widgets; if the user has
+  // resized larger we keep their size, otherwise bump to the new minimum.
+  const min = node.computeSize();
+  const cur = node.size || min;
+  node.setSize([Math.max(cur[0], min[0]), Math.max(cur[1], min[1])]);
   node.setDirtyCanvas(true, true);
 }
 
@@ -127,6 +135,195 @@ app.registerExtension({
           refreshFalCatalog();
         },
       });
+    };
+  },
+});
+
+// ============================================================================
+// M4: per-model dynamic widget rendering
+// ============================================================================
+// When the user changes the model_id dropdown, fetch that model's WidgetSpec
+// list from /fal_gateway/schema/<id_b64> and rebuild the node's non-static
+// widgets in place. Static widgets (model_id, prompt, image_count) stay; image
+// SOCKETS are not touched here (they live in node.inputs).
+
+const SCHEMA_ROUTE = "/fal_gateway/schema";
+const SCHEMA_CACHE = new Map();
+const STATIC_WIDGET_NAMES = new Set(["model_id", "prompt", "image_count"]);
+
+function modelIdToBase64Url(modelId) {
+  // Standard URL-safe base64 (RFC 4648 §5), no padding.
+  return btoa(modelId)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+async function fetchModelSchema(modelId) {
+  if (SCHEMA_CACHE.has(modelId)) return SCHEMA_CACHE.get(modelId);
+  const url = `${SCHEMA_ROUTE}/${modelIdToBase64Url(modelId)}`;
+  const res = await api.fetchApi(url);
+  if (!res.ok) {
+    throw new Error(`schema fetch failed: HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  if (data.ok === false) {
+    throw new Error(data.error || "schema fetch returned ok=false");
+  }
+  SCHEMA_CACHE.set(modelId, data);
+  return data;
+}
+
+function makeDynamicWidget(node, spec) {
+  const name = spec.name;
+  const def = spec.default;
+  const meta = spec.meta || {};
+
+  if (spec.kind === "STRING") {
+    return node.addWidget("text", name, def ?? "", null, {
+      multiline: !!spec.multiline,
+    });
+  }
+  if (spec.kind === "INT") {
+    return node.addWidget("number", name, Number(def) || 0, null, {
+      min: meta.min,
+      max: meta.max,
+      step: 1,
+      precision: 0,
+    });
+  }
+  if (spec.kind === "FLOAT") {
+    return node.addWidget("number", name, Number(def) || 0, null, {
+      min: meta.min,
+      max: meta.max,
+      step: meta.step ?? 0.01,
+      precision: 3,
+    });
+  }
+  if (spec.kind === "BOOLEAN") {
+    return node.addWidget("toggle", name, !!def, null);
+  }
+  if (spec.kind === "COMBO") {
+    const options = Array.isArray(spec.options) ? spec.options : [];
+    return node.addWidget("combo", name, def ?? options[0] ?? "", null, {
+      values: options,
+    });
+  }
+  // IMAGE_INPUT / IMAGE_ARRAY → not user-editable widgets here (they're sockets).
+  // JSON → fall back to multiline string.
+  if (spec.kind === "JSON") {
+    return node.addWidget("text", name, def ?? "", null, { multiline: true });
+  }
+  return null;
+}
+
+async function rebuildDynamicWidgets(node, modelId) {
+  // ALWAYS clear stale dynamic widgets first so a fetch failure doesn't leave
+  // the user looking at the previous model's widgets on this node.
+  const previousValues = new Map();
+  if (node.widgets) {
+    for (const w of node.widgets) {
+      if (w && w._falDynamic && w.name) {
+        previousValues.set(w.name, w.value);
+      }
+    }
+    node.widgets = node.widgets.filter((w) => !w?._falDynamic);
+  }
+
+  let schema;
+  try {
+    schema = await fetchModelSchema(modelId);
+  } catch (err) {
+    console.warn(`[FalGateway] schema fetch failed for ${modelId}:`, err);
+    // Stale widgets already removed above; just resize and bail.
+    const min = node.computeSize();
+    const cur = node.size || min;
+    node.setSize([Math.max(cur[0], min[0]), Math.max(cur[1], min[1])]);
+    node.setDirtyCanvas(true, true);
+    return;
+  }
+
+  // Materialise new widgets from schema.
+  for (const spec of schema.widgets || []) {
+    if (!spec || !spec.name) continue;
+    if (STATIC_WIDGET_NAMES.has(spec.name)) continue;
+    if (spec.kind === "IMAGE_INPUT" || spec.kind === "IMAGE_ARRAY") continue;
+    const w = makeDynamicWidget(node, spec);
+    if (!w) continue;
+    w._falDynamic = true;
+    // Carry over the previously-set value if the new model also has a widget
+    // by the same name (e.g. duration, seed, prompt-style fields). Reduces
+    // re-typing when the user A/B-tests two similar models.
+    if (previousValues.has(spec.name)) {
+      w.value = previousValues.get(spec.name);
+    }
+  }
+
+  // Resize to fit; never shrink past user-set size (fixes Issue 1 for this code path too).
+  const min = node.computeSize();
+  const cur = node.size || min;
+  node.setSize([Math.max(cur[0], min[0]), Math.max(cur[1], min[1])]);
+  node.setDirtyCanvas(true, true);
+}
+
+function attachToModelIdWidget(node) {
+  const widget = node.widgets?.find((w) => w?.name === "model_id");
+  if (!widget || widget._falCallbackPatched) return widget;
+  const origCallback = widget.callback;
+  widget.callback = function (value, ...rest) {
+    const r = origCallback?.call(this, value, ...rest);
+    if (value && value !== "<no models available>") {
+      // Fire-and-forget; rebuild handles errors internally.
+      rebuildDynamicWidgets(node, value);
+    }
+    return r;
+  };
+  widget._falCallbackPatched = true;
+  return widget;
+}
+
+app.registerExtension({
+  name: "ComfyUI.FalGateway.DynamicSchemaWidgets",
+  async beforeRegisterNodeDef(nodeType, nodeData) {
+    if (!FAL_NODE_TYPES.has(nodeData?.name)) return;
+
+    const onCreated = nodeType.prototype.onNodeCreated;
+    nodeType.prototype.onNodeCreated = function () {
+      const r = onCreated?.apply(this, arguments);
+      const w = attachToModelIdWidget(this);
+      if (w?.value && w.value !== "<no models available>") {
+        rebuildDynamicWidgets(this, w.value);
+      }
+      return r;
+    };
+
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function (info, ...rest) {
+      // Capture the FULL saved widgets_values BEFORE the standard configure
+      // applies them (only the first N apply to existing static widgets; the
+      // rest are dropped before our dynamic widgets exist).
+      const savedValues = (info?.widgets_values || this.widgets_values || []).slice();
+      const r = onConfigure?.apply(this, [info, ...rest]);
+      const w = attachToModelIdWidget(this);
+      if (w?.value && w.value !== "<no models available>") {
+        rebuildDynamicWidgets(this, w.value).then(() => {
+          // After rebuild: apply leftover saved values to the freshly-added
+          // dynamic widgets, in order. Best-effort — if the model's schema has
+          // shifted between save and load, mismatched values survive on
+          // matching indices, others are dropped.
+          const widgets = this.widgets || [];
+          const dynamicWidgets = widgets.filter((ww) => ww?._falDynamic);
+          const staticCount = widgets.length - dynamicWidgets.length;
+          for (let i = 0; i < dynamicWidgets.length; i++) {
+            const idx = staticCount + i;
+            if (idx < savedValues.length && savedValues[idx] !== undefined) {
+              dynamicWidgets[i].value = savedValues[idx];
+            }
+          }
+          this.setDirtyCanvas(true, true);
+        });
+      }
+      return r;
     };
   },
 });

@@ -260,3 +260,67 @@ def filter_models(category: str, shapes: tuple[str, ...] | None = None) -> list[
 
 def list_ids(category: str, shapes: tuple[str, ...] | None = None) -> list[str]:
     return [m.id for m in filter_models(category, shapes)]
+
+
+# --------------------------------------------------------------------------
+# Display-string helpers (provider-prefixed dropdown labels).
+#
+# Format: `[<provider>] <display_name> — <endpoint_id>`
+# Sorted by provider then display_name so type-ahead "kling" jumps straight to
+# the Kling family. The endpoint_id is appended for disambiguation when two
+# models share a display_name AND so the parser can recover the canonical id.
+# --------------------------------------------------------------------------
+
+
+_DISPLAY_SEP = " — "  # em dash with surrounding spaces; rare in real display names
+
+
+def extract_provider(endpoint_id: str) -> str:
+    """First path segment of an endpoint_id. Empty → empty."""
+    if not endpoint_id:
+        return ""
+    return endpoint_id.split("/", 1)[0]
+
+
+def build_display_string(entry: ModelEntry) -> str:
+    provider = extract_provider(entry.id)
+    return f"[{provider}] {entry.display_name}{_DISPLAY_SEP}{entry.id}"
+
+
+def parse_display_string(value: str) -> str:
+    """Recover the endpoint_id from a display string `[provider] Name — endpoint`.
+
+    Strict: raises `ValueError` on anything that doesn't match the format.
+    The model_id widget always serializes display strings, so callers should
+    never see anything else.
+    """
+    if not value or not isinstance(value, str):
+        raise ValueError(f"empty or non-string value: {value!r}")
+    if not value.startswith("["):
+        raise ValueError(f"not a display string (no '[provider]' prefix): {value!r}")
+    # Split on the LAST separator so display names containing " — " survive.
+    idx = value.rfind(_DISPLAY_SEP)
+    if idx < 0:
+        raise ValueError(f"not a display string (no ' — ' separator): {value!r}")
+    return value[idx + len(_DISPLAY_SEP):]
+
+
+def list_display_strings(
+    category: str, shapes: tuple[str, ...] | None = None
+) -> list[str]:
+    """Sorted list of display strings for the model dropdown."""
+    entries = filter_models(category, shapes)
+    entries_sorted = sorted(
+        entries,
+        key=lambda e: (extract_provider(e.id).lower(), e.display_name.lower(), e.id),
+    )
+    return [build_display_string(e) for e in entries_sorted]
+
+
+def resolve(value: str) -> ModelEntry | None:
+    """Look up a model by its display string. Returns None if unknown.
+
+    Raises `ValueError` on malformed input — callers handle this as a 400.
+    """
+    endpoint_id = parse_display_string(value)
+    return get(endpoint_id)

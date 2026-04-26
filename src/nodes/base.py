@@ -94,7 +94,12 @@ class _FalGatewayNodeBase:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
-        ids = model_registry.list_ids(
+        # Display strings: "[provider] DisplayName — endpoint_id". Sorted by
+        # provider so type-ahead clusters families together. The model_id widget
+        # value is the display string; execute() resolves it back to the raw
+        # endpoint_id (and accepts raw ids for backward compat with saved
+        # workflows).
+        ids = model_registry.list_display_strings(
             cls.CATEGORY_FILTER, cls.SHAPE_FILTER or None
         ) or ["<no models available>"]
 
@@ -130,13 +135,13 @@ class _FalGatewayNodeBase:
                 "config.ini.example to config.ini in the package directory."
             )
 
-        entry = model_registry.get(model_id)
+        entry = model_registry.resolve(model_id)
         if entry is None:
             raise RuntimeError(f"unknown model_id {model_id!r}")
 
         payload = await self._build_payload(entry, prompt, kwargs)
-        _log.info("submitting fal job: model=%s payload_keys=%s", model_id, list(payload.keys()))
-        result = await run_async(model_id, payload)
+        _log.info("submitting fal job: model=%s payload_keys=%s", entry.id, list(payload.keys()))
+        result = await run_async(entry.id, payload)
         kind = type(self).OUTPUT_KIND
         url = extract_artifact_url(result, kind)
 

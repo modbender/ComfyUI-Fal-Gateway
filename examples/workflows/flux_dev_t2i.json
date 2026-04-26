@@ -2,7 +2,7 @@
   "1": {
     "class_type": "FalGatewayT2I",
     "inputs": {
-      "model_id": "fal-ai/flux/dev",
+      "model_id": "[fal-ai] FLUX.1 [dev] — fal-ai/flux/dev",
       "prompt": "REPLACE THIS — describe the image you want, e.g. 'a snow leopard on an icy ridge at golden hour, cinematic, 35mm'"
     }
   },
