@@ -1,0 +1,417 @@
+{
+  "endpoint_id": "fal-ai/esrgan",
+  "metadata": {
+    "display_name": "Upscale Images",
+    "category": "image-to-image",
+    "description": "Upscale images by a given factor.",
+    "status": "active",
+    "tags": [
+      "upscaling",
+      "high-res"
+    ],
+    "updated_at": "2026-04-21T17:45:19.095Z",
+    "is_favorited": null,
+    "thumbnail_url": "https://storage.googleapis.com/falserverless/gallery/esrgan.webp?v=2",
+    "thumbnail_animated_url": "https://storage.googleapis.com/falserverless/gallery/esrgan-animated.webp?v=2",
+    "model_url": "https://fal.run/fal-ai/esrgan",
+    "github_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+    "license_type": "commercial",
+    "date": "2023-10-30T00:00:00.000Z",
+    "highlighted": false,
+    "kind": "inference",
+    "pinned": false
+  },
+  "openapi": {
+    "openapi": "3.0.4",
+    "info": {
+      "title": "Queue OpenAPI for fal-ai/esrgan",
+      "version": "1.0.0",
+      "description": "The OpenAPI schema for the fal-ai/esrgan queue.",
+      "x-fal-metadata": {
+        "endpointId": "fal-ai/esrgan",
+        "category": "image-to-image",
+        "thumbnailUrl": "https://storage.googleapis.com/falserverless/gallery/esrgan.webp?v=2",
+        "playgroundUrl": "https://fal.ai/models/fal-ai/esrgan",
+        "documentationUrl": "https://fal.ai/models/fal-ai/esrgan/api"
+      }
+    },
+    "components": {
+      "securitySchemes": {
+        "apiKeyAuth": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "Authorization",
+          "description": "Fal Key"
+        }
+      },
+      "schemas": {
+        "QueueStatus": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "IN_QUEUE",
+                "IN_PROGRESS",
+                "COMPLETED"
+              ]
+            },
+            "request_id": {
+              "type": "string",
+              "description": "The request id."
+            },
+            "response_url": {
+              "type": "string",
+              "description": "The response url."
+            },
+            "status_url": {
+              "type": "string",
+              "description": "The status url."
+            },
+            "cancel_url": {
+              "type": "string",
+              "description": "The cancel url."
+            },
+            "logs": {
+              "type": "object",
+              "description": "The logs.",
+              "additionalProperties": true
+            },
+            "metrics": {
+              "type": "object",
+              "description": "The metrics.",
+              "additionalProperties": true
+            },
+            "queue_position": {
+              "type": "integer",
+              "description": "The queue position."
+            }
+          },
+          "required": [
+            "status",
+            "request_id"
+          ]
+        },
+        "EsrganInput": {
+          "properties": {
+            "model": {
+              "description": "Model to use for upscaling",
+              "enum": [
+                "RealESRGAN_x4plus",
+                "RealESRGAN_x2plus",
+                "RealESRGAN_x4plus_anime_6B",
+                "RealESRGAN_x4_v3",
+                "RealESRGAN_x4_wdn_v3",
+                "RealESRGAN_x4_anime_v3"
+              ],
+              "default": "RealESRGAN_x4plus",
+              "title": "Model",
+              "type": "string"
+            },
+            "tile": {
+              "description": "Tile size. Default is 0, that is no tile. When encountering the out-of-GPU-memory issue, please specify it, e.g., 400 or 200",
+              "default": 0,
+              "title": "Tile",
+              "type": "integer"
+            },
+            "output_format": {
+              "description": "Output image format (png or jpeg)",
+              "enum": [
+                "png",
+                "jpeg"
+              ],
+              "default": "png",
+              "title": "Output Format",
+              "type": "string"
+            },
+            "image_url": {
+              "description": "Url to input image",
+              "examples": [
+                "https://storage.googleapis.com/falserverless/model_tests/remove_background/elephant.jpg",
+                "https://storage.googleapis.com/falserverless/gallery/blue-bird.jpeg",
+                "https://storage.googleapis.com/falserverless/model_tests/upscale/image%20(8).png"
+              ],
+              "title": "Image Url",
+              "type": "string"
+            },
+            "scale": {
+              "description": "Rescaling factor",
+              "minimum": 1,
+              "default": 2,
+              "maximum": 8,
+              "title": "Scale",
+              "type": "number"
+            },
+            "face": {
+              "description": "Upscaling a face",
+              "default": false,
+              "title": "Face",
+              "type": "boolean"
+            }
+          },
+          "x-fal-order-properties": [
+            "image_url",
+            "scale",
+            "tile",
+            "face",
+            "model",
+            "output_format"
+          ],
+          "required": [
+            "image_url"
+          ],
+          "title": "UpscaleInput",
+          "type": "object"
+        },
+        "EsrganOutput": {
+          "properties": {
+            "image": {
+              "description": "Upscaled image",
+              "$ref": "#/components/schemas/Image"
+            }
+          },
+          "x-fal-order-properties": [
+            "image"
+          ],
+          "required": [
+            "image"
+          ],
+          "title": "UpscaleOutput",
+          "type": "object"
+        },
+        "Image": {
+          "description": "Represents an image file.",
+          "properties": {
+            "file_name": {
+              "examples": [
+                "z9RV14K95DvU.png"
+              ],
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "File Name",
+              "description": "The name of the file. It will be auto-generated if not provided."
+            },
+            "url": {
+              "description": "The URL where the file can be downloaded from.",
+              "title": "Url",
+              "type": "string"
+            },
+            "file_size": {
+              "examples": [
+                4404019
+              ],
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "File Size",
+              "description": "The size of the file in bytes."
+            },
+            "content_type": {
+              "examples": [
+                "image/png"
+              ],
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content Type",
+              "description": "The mime type of the file."
+            },
+            "width": {
+              "examples": [
+                1024
+              ],
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Width",
+              "description": "The width of the image in pixels."
+            },
+            "height": {
+              "examples": [
+                1024
+              ],
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Height",
+              "description": "The height of the image in pixels."
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "x-fal-order-properties": [
+            "url",
+            "content_type",
+            "file_name",
+            "file_size",
+            "width",
+            "height"
+          ],
+          "title": "Image",
+          "type": "object"
+        }
+      }
+    },
+    "paths": {
+      "/fal-ai/esrgan/requests/{request_id}/status": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            },
+            {
+              "name": "logs",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "number",
+                "description": "Whether to include logs (`1`) in the response or not (`0`)."
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/esrgan/requests/{request_id}/cancel": {
+        "put": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request was cancelled.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "description": "Whether the request was cancelled successfully."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/esrgan": {
+        "post": {
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EsrganInput"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/esrgan/requests/{request_id}": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Result of the request.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/EsrganOutput"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "https://queue.fal.run"
+      }
+    ],
+    "security": [
+      {
+        "apiKeyAuth": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,355 @@
+{
+  "endpoint_id": "fal-ai/minimax/video-01-subject-reference",
+  "metadata": {
+    "display_name": "MiniMax (Hailuo AI) Video 01 Subject Reference",
+    "category": "image-to-video",
+    "description": "Generate video clips maintaining consistent, realistic facial features and identity across dynamic video content",
+    "status": "active",
+    "tags": [
+      "subject",
+      "transformation"
+    ],
+    "updated_at": "2026-04-21T17:52:16.298Z",
+    "is_favorited": null,
+    "thumbnail_url": "https://storage.googleapis.com/falserverless/gallery/minimax-video-01-subject-reference.webp",
+    "model_url": "https://fal.run/fal-ai/minimax/video-01-subject-reference",
+    "date": "2025-01-20T00:00:00.000Z",
+    "group": {
+      "key": "minimax-video",
+      "label": "Image to Video (Subject Reference)"
+    },
+    "highlighted": false,
+    "pinned": false
+  },
+  "openapi": {
+    "openapi": "3.0.4",
+    "info": {
+      "title": "Queue OpenAPI for fal-ai/minimax/video-01-subject-reference",
+      "version": "1.0.0",
+      "description": "The OpenAPI schema for the fal-ai/minimax/video-01-subject-reference queue.",
+      "x-fal-metadata": {
+        "endpointId": "fal-ai/minimax/video-01-subject-reference",
+        "category": "image-to-video",
+        "thumbnailUrl": "https://storage.googleapis.com/falserverless/gallery/minimax-video-01-subject-reference.webp",
+        "playgroundUrl": "https://fal.ai/models/fal-ai/minimax/video-01-subject-reference",
+        "documentationUrl": "https://fal.ai/models/fal-ai/minimax/video-01-subject-reference/api"
+      }
+    },
+    "components": {
+      "securitySchemes": {
+        "apiKeyAuth": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "Authorization",
+          "description": "Fal Key"
+        }
+      },
+      "schemas": {
+        "QueueStatus": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "IN_QUEUE",
+                "IN_PROGRESS",
+                "COMPLETED"
+              ]
+            },
+            "request_id": {
+              "type": "string",
+              "description": "The request id."
+            },
+            "response_url": {
+              "type": "string",
+              "description": "The response url."
+            },
+            "status_url": {
+              "type": "string",
+              "description": "The status url."
+            },
+            "cancel_url": {
+              "type": "string",
+              "description": "The cancel url."
+            },
+            "logs": {
+              "type": "object",
+              "description": "The logs.",
+              "additionalProperties": true
+            },
+            "metrics": {
+              "type": "object",
+              "description": "The metrics.",
+              "additionalProperties": true
+            },
+            "queue_position": {
+              "type": "integer",
+              "description": "The queue position."
+            }
+          },
+          "required": [
+            "status",
+            "request_id"
+          ]
+        },
+        "MinimaxVideo01SubjectReferenceInput": {
+          "properties": {
+            "prompt_optimizer": {
+              "type": "boolean",
+              "title": "Prompt Optimizer",
+              "default": true,
+              "description": "Whether to use the model's prompt optimizer"
+            },
+            "subject_reference_image_url": {
+              "examples": [
+                "https://fal.media/files/tiger/s2xnjhLpjM6L8ISxlDCAw.png"
+              ],
+              "type": "string",
+              "title": "Subject Reference Image Url",
+              "description": "URL of the subject reference image to use for consistent subject appearance"
+            },
+            "prompt": {
+              "examples": [
+                "A stylish woman walks down a Tokyo street filled with warm glowing neon and animated city signage."
+              ],
+              "type": "string",
+              "title": "Prompt",
+              "maxLength": 2000
+            }
+          },
+          "x-fal-order-properties": [
+            "prompt",
+            "subject_reference_image_url",
+            "prompt_optimizer"
+          ],
+          "title": "SubjectReferenceRequest",
+          "type": "object",
+          "required": [
+            "prompt",
+            "subject_reference_image_url"
+          ]
+        },
+        "MinimaxVideo01SubjectReferenceOutput": {
+          "properties": {
+            "video": {
+              "$ref": "#/components/schemas/File",
+              "examples": [
+                {
+                  "url": "https://fal.media/files/rabbit/pONKqOnY7z6GlF6oDESvR_output.mp4"
+                }
+              ],
+              "description": "The generated video"
+            }
+          },
+          "x-fal-order-properties": [
+            "video"
+          ],
+          "title": "SubjectReferenceOutput",
+          "type": "object",
+          "required": [
+            "video"
+          ]
+        },
+        "File": {
+          "properties": {
+            "file_size": {
+              "examples": [
+                4404019
+              ],
+              "title": "File Size",
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size of the file in bytes."
+            },
+            "url": {
+              "type": "string",
+              "title": "Url",
+              "description": "The URL where the file can be downloaded from."
+            },
+            "content_type": {
+              "examples": [
+                "image/png"
+              ],
+              "title": "Content Type",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The mime type of the file."
+            },
+            "file_name": {
+              "examples": [
+                "z9RV14K95DvU.png"
+              ],
+              "title": "File Name",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The name of the file. It will be auto-generated if not provided."
+            }
+          },
+          "x-fal-order-properties": [
+            "url",
+            "content_type",
+            "file_name",
+            "file_size"
+          ],
+          "title": "File",
+          "type": "object",
+          "required": [
+            "url"
+          ]
+        }
+      }
+    },
+    "paths": {
+      "/fal-ai/minimax/video-01-subject-reference/requests/{request_id}/status": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            },
+            {
+              "name": "logs",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "number",
+                "description": "Whether to include logs (`1`) in the response or not (`0`)."
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/minimax/video-01-subject-reference/requests/{request_id}/cancel": {
+        "put": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request was cancelled.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "description": "Whether the request was cancelled successfully."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/minimax/video-01-subject-reference": {
+        "post": {
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MinimaxVideo01SubjectReferenceInput"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/minimax/video-01-subject-reference/requests/{request_id}": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Result of the request.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MinimaxVideo01SubjectReferenceOutput"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "https://queue.fal.run"
+      }
+    ],
+    "security": [
+      {
+        "apiKeyAuth": []
+      }
+    ]
+  }
+}

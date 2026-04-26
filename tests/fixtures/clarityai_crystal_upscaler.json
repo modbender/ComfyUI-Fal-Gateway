@@ -1,0 +1,395 @@
+{
+  "endpoint_id": "clarityai/crystal-upscaler",
+  "metadata": {
+    "display_name": "Crystal Upscaler",
+    "category": "image-to-image",
+    "description": "An advanced image enhancement tool designed specifically for facial details and portrait photography, utilizing Clarity AI's upscaling technology.",
+    "status": "active",
+    "tags": [
+      "image-to-image"
+    ],
+    "updated_at": "2026-01-26T21:42:13.529Z",
+    "is_favorited": null,
+    "thumbnail_url": "https://v3b.fal.media/files/b/kangaroo/MXXDFIdMKdUafM9WsY5sk_10934786a1c846acbb01d7ae9c2bdab1.jpg",
+    "model_url": "https://fal.run/clarityai/crystal-upscaler",
+    "license_type": "commercial",
+    "date": "2025-11-25T13:16:15.815Z",
+    "group": {
+      "key": "clarityai-clarity-upscaler",
+      "label": "Upscale Image"
+    },
+    "highlighted": false,
+    "kind": "inference",
+    "pinned": false
+  },
+  "openapi": {
+    "openapi": "3.0.4",
+    "info": {
+      "title": "Queue OpenAPI for clarityai/crystal-upscaler",
+      "version": "1.0.0",
+      "description": "The OpenAPI schema for the clarityai/crystal-upscaler queue.",
+      "x-fal-metadata": {
+        "endpointId": "clarityai/crystal-upscaler",
+        "category": "image-to-image",
+        "thumbnailUrl": "https://v3b.fal.media/files/b/kangaroo/MXXDFIdMKdUafM9WsY5sk_10934786a1c846acbb01d7ae9c2bdab1.jpg",
+        "playgroundUrl": "https://fal.ai/models/clarityai/crystal-upscaler",
+        "documentationUrl": "https://fal.ai/models/clarityai/crystal-upscaler/api"
+      }
+    },
+    "components": {
+      "securitySchemes": {
+        "apiKeyAuth": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "Authorization",
+          "description": "Fal Key"
+        }
+      },
+      "schemas": {
+        "QueueStatus": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "IN_QUEUE",
+                "IN_PROGRESS",
+                "COMPLETED"
+              ]
+            },
+            "request_id": {
+              "type": "string",
+              "description": "The request id."
+            },
+            "response_url": {
+              "type": "string",
+              "description": "The response url."
+            },
+            "status_url": {
+              "type": "string",
+              "description": "The status url."
+            },
+            "cancel_url": {
+              "type": "string",
+              "description": "The cancel url."
+            },
+            "logs": {
+              "type": "object",
+              "description": "The logs.",
+              "additionalProperties": true
+            },
+            "metrics": {
+              "type": "object",
+              "description": "The metrics.",
+              "additionalProperties": true
+            },
+            "queue_position": {
+              "type": "integer",
+              "description": "The queue position."
+            }
+          },
+          "required": [
+            "status",
+            "request_id"
+          ]
+        },
+        "CrystalUpscalerInput": {
+          "properties": {
+            "image_url": {
+              "type": "string",
+              "max_file_size": 104857600,
+              "examples": [
+                "https://v3b.fal.media/files/b/zebra/eW3waMFDT-2_7Pq8j3r9d_upscaled.png"
+              ],
+              "title": "Image Url",
+              "description": "URL to the input image"
+            },
+            "scale_factor": {
+              "description": "Scale factor",
+              "minimum": 1,
+              "default": 2,
+              "maximum": 200,
+              "title": "Scale Factor",
+              "type": "number"
+            },
+            "creativity": {
+              "description": "Creativity level for upscaling",
+              "minimum": 0,
+              "default": 0,
+              "maximum": 10,
+              "title": "Creativity",
+              "type": "number"
+            }
+          },
+          "required": [
+            "image_url"
+          ],
+          "x-fal-order-properties": [
+            "image_url",
+            "scale_factor",
+            "creativity"
+          ],
+          "title": "CrystalUpscaleInput",
+          "type": "object"
+        },
+        "CrystalUpscalerOutput": {
+          "properties": {
+            "images": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/Image"
+              },
+              "examples": [
+                [
+                  "https://v3b.fal.media/files/b/penguin/sVriwxLaU3fVTz5B-xBBC_upscaled.png"
+                ]
+              ],
+              "title": "Images",
+              "description": "List of upscaled images"
+            }
+          },
+          "required": [
+            "images"
+          ],
+          "x-fal-order-properties": [
+            "images"
+          ],
+          "title": "CrystalUpscaleOutput",
+          "type": "object"
+        },
+        "Image": {
+          "description": "Represents an image file.",
+          "properties": {
+            "file_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "examples": [
+                "z9RV14K95DvU.png"
+              ],
+              "title": "File Name",
+              "description": "The name of the file. It will be auto-generated if not provided."
+            },
+            "content_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "examples": [
+                "image/png"
+              ],
+              "title": "Content Type",
+              "description": "The mime type of the file."
+            },
+            "file_size": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "examples": [
+                4404019
+              ],
+              "title": "File Size",
+              "description": "The size of the file in bytes."
+            },
+            "url": {
+              "description": "The URL where the file can be downloaded from.",
+              "title": "Url",
+              "type": "string"
+            },
+            "width": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "examples": [
+                1024
+              ],
+              "title": "Width",
+              "description": "The width of the image in pixels."
+            },
+            "height": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "examples": [
+                1024
+              ],
+              "title": "Height",
+              "description": "The height of the image in pixels."
+            }
+          },
+          "x-fal-order-properties": [
+            "url",
+            "content_type",
+            "file_name",
+            "file_size",
+            "width",
+            "height"
+          ],
+          "required": [
+            "url"
+          ],
+          "title": "Image",
+          "type": "object"
+        }
+      }
+    },
+    "paths": {
+      "/clarityai/crystal-upscaler/requests/{request_id}/status": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            },
+            {
+              "name": "logs",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "number",
+                "description": "Whether to include logs (`1`) in the response or not (`0`)."
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/clarityai/crystal-upscaler/requests/{request_id}/cancel": {
+        "put": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request was cancelled.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "description": "Whether the request was cancelled successfully."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/clarityai/crystal-upscaler": {
+        "post": {
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrystalUpscalerInput"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/clarityai/crystal-upscaler/requests/{request_id}": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Result of the request.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/CrystalUpscalerOutput"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "https://queue.fal.run"
+      }
+    ],
+    "security": [
+      {
+        "apiKeyAuth": []
+      }
+    ]
+  }
+}

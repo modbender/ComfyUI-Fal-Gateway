@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+.vscode/
+.idea/
+*.egg-info/
+dist/
+build/
+.coverage
+htmlcov/
+config.ini
+cache/*
+!cache/.gitkeep

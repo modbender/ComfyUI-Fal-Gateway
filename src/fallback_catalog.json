@@ -1,0 +1,86 @@
+{
+  "fetched_at": "2026-04-25T00:00:00Z",
+  "schema_version": 1,
+  "note": "Hardcoded M1 fixture. Real catalog fetch lands in M3 — this file is the offline-bootable fallback.",
+  "models": [
+    {
+      "id": "fal-ai/bytedance/seedance/v1/lite/text-to-video",
+      "display_name": "Seedance Lite — Text-to-Video",
+      "category": "text-to-video",
+      "shape": "text_only",
+      "description": "ByteDance Seedance Lite, prompt-only video generation.",
+      "widgets": [
+        {"name": "prompt", "kind": "STRING", "default": "", "required": true, "multiline": true, "payload_key": "prompt"},
+        {"name": "duration", "kind": "INT", "default": 5, "meta": {"min": 3, "max": 10}, "payload_key": "duration"},
+        {"name": "seed", "kind": "INT", "default": -1, "meta": {"min": -1, "max": 4294967295}, "payload_key": "seed"}
+      ]
+    },
+    {
+      "id": "fal-ai/kling-video/v1.6/pro/text-to-video",
+      "display_name": "Kling 1.6 Pro — Text-to-Video",
+      "category": "text-to-video",
+      "shape": "text_only",
+      "description": "Kling 1.6 Pro, high-quality T2V.",
+      "widgets": [
+        {"name": "prompt", "kind": "STRING", "default": "", "required": true, "multiline": true, "payload_key": "prompt"},
+        {"name": "negative_prompt", "kind": "STRING", "default": "", "multiline": true, "payload_key": "negative_prompt"},
+        {"name": "duration", "kind": "COMBO", "default": "5", "options": ["5", "10"], "payload_key": "duration"},
+        {"name": "aspect_ratio", "kind": "COMBO", "default": "16:9", "options": ["16:9", "9:16", "1:1"], "payload_key": "aspect_ratio"},
+        {"name": "cfg_scale", "kind": "FLOAT", "default": 0.5, "meta": {"min": 0.0, "max": 1.0, "step": 0.05}, "payload_key": "cfg_scale"}
+      ]
+    },
+    {
+      "id": "fal-ai/bytedance/seedance/v1/lite/image-to-video",
+      "display_name": "Seedance Lite — Image-to-Video",
+      "category": "image-to-video",
+      "shape": "single_image",
+      "description": "ByteDance Seedance Lite, image-driven video.",
+      "widgets": [
+        {"name": "prompt", "kind": "STRING", "default": "", "required": true, "multiline": true, "payload_key": "prompt"},
+        {"name": "image", "kind": "IMAGE_INPUT", "required": true, "payload_key": "image_url"},
+        {"name": "duration", "kind": "INT", "default": 5, "meta": {"min": 3, "max": 10}, "payload_key": "duration"},
+        {"name": "seed", "kind": "INT", "default": -1, "meta": {"min": -1, "max": 4294967295}, "payload_key": "seed"}
+      ]
+    },
+    {
+      "id": "fal-ai/minimax/video-01-live/image-to-video",
+      "display_name": "MiniMax Video-01 Live — Image-to-Video",
+      "category": "image-to-video",
+      "shape": "single_image",
+      "description": "MiniMax video-01-live, smooth motion from a single reference frame.",
+      "widgets": [
+        {"name": "prompt", "kind": "STRING", "default": "", "required": true, "multiline": true, "payload_key": "prompt"},
+        {"name": "image", "kind": "IMAGE_INPUT", "required": true, "payload_key": "image_url"},
+        {"name": "prompt_optimizer", "kind": "BOOLEAN", "default": true, "payload_key": "prompt_optimizer"}
+      ]
+    },
+    {
+      "id": "fal-ai/kling-video/v1.6/pro/image-to-video",
+      "display_name": "Kling 1.6 Pro — Image-to-Video / FLF",
+      "category": "image-to-video",
+      "shape": "flf",
+      "description": "Kling 1.6 Pro. Provide one image for I2V, or two (start + end) for first-last-frame.",
+      "widgets": [
+        {"name": "prompt", "kind": "STRING", "default": "", "required": true, "multiline": true, "payload_key": "prompt"},
+        {"name": "negative_prompt", "kind": "STRING", "default": "", "multiline": true, "payload_key": "negative_prompt"},
+        {"name": "image_1", "kind": "IMAGE_INPUT", "required": true, "payload_key": "image_url"},
+        {"name": "image_2", "kind": "IMAGE_INPUT", "required": false, "payload_key": "tail_image_url"},
+        {"name": "duration", "kind": "COMBO", "default": "5", "options": ["5", "10"], "payload_key": "duration"},
+        {"name": "aspect_ratio", "kind": "COMBO", "default": "16:9", "options": ["16:9", "9:16", "1:1"], "payload_key": "aspect_ratio"},
+        {"name": "cfg_scale", "kind": "FLOAT", "default": 0.5, "meta": {"min": 0.0, "max": 1.0, "step": 0.05}, "payload_key": "cfg_scale"}
+      ]
+    },
+    {
+      "id": "fal-ai/minimax/video-01-subject-reference",
+      "display_name": "MiniMax Video-01 — Subject Reference",
+      "category": "image-to-video",
+      "shape": "multi_ref",
+      "description": "MiniMax video-01 with a single subject-reference image.",
+      "widgets": [
+        {"name": "prompt", "kind": "STRING", "default": "", "required": true, "multiline": true, "payload_key": "prompt"},
+        {"name": "image_1", "kind": "IMAGE_INPUT", "required": true, "payload_key": "subject_reference_image_url"},
+        {"name": "prompt_optimizer", "kind": "BOOLEAN", "default": true, "payload_key": "prompt_optimizer"}
+      ]
+    }
+  ]
+}

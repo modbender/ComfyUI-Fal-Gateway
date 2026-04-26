@@ -1,0 +1,16 @@
+{
+  "1": {
+    "class_type": "FalGatewayT2I",
+    "inputs": {
+      "model_id": "fal-ai/flux/dev",
+      "prompt": "REPLACE THIS — describe the image you want, e.g. 'a snow leopard on an icy ridge at golden hour, cinematic, 35mm'"
+    }
+  },
+  "2": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["1", 0],
+      "filename_prefix": "FalGateway_T2I"
+    }
+  }
+}

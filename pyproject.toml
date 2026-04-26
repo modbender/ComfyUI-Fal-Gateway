@@ -1,0 +1,53 @@
+[project]
+name = "comfyui-fal-gateway"
+version = "0.2.0"
+description = "Schema-driven ComfyUI gateway for fal.ai — seven unified nodes covering text/image/reference-to-video AND text/image/reference-to-image AND upscale, all auto-populating from fal's model catalog. New fal models appear in the dropdown automatically; no per-model code required."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Anime" }]
+keywords = ["comfyui", "fal", "video-generation", "seedance", "kling", "veo", "open-api"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "fal-client>=0.5.0",
+    "aiohttp>=3.9",
+    "opencv-python>=4.8",
+    "Pillow>=10.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[project.urls]
+Repository = "https://github.com/anime/ComfyUI-Fal-Gateway"
+Issues = "https://github.com/anime/ComfyUI-Fal-Gateway/issues"
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "ComfyUI-Fal-Gateway"
+Icon = ""
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: tests that hit the live fal.ai API (opt-in via -m integration; skipped by default)",
+]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

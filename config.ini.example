@@ -1,0 +1,5 @@
+[API]
+# Get your key at https://fal.ai/dashboard/keys
+# You can also set the FAL_KEY environment variable instead — the env var takes
+# precedence if both are present.
+FAL_KEY = <your_fal_api_key_here>

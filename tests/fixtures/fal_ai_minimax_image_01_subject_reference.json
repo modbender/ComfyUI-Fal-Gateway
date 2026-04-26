@@ -1,0 +1,394 @@
+{
+  "endpoint_id": "fal-ai/minimax/image-01/subject-reference",
+  "metadata": {
+    "display_name": "Minimax Image Subject Reference",
+    "category": "image-to-image",
+    "description": "Generate images from text and a reference image using MiniMax Image-01 for consistent character appearance.",
+    "status": "active",
+    "tags": [
+      "stylized",
+      "transform"
+    ],
+    "updated_at": "2026-04-21T17:52:06.465Z",
+    "is_favorited": null,
+    "thumbnail_url": "https://storage.googleapis.com/fal_cdn/fal/Upscale-3.jpeg",
+    "model_url": "https://fal.run/fal-ai/minimax/image-01/subject-reference",
+    "license_type": "commercial",
+    "date": "2025-05-06T16:14:51.517Z",
+    "group": {
+      "key": "minimax-image",
+      "label": "Subject Reference"
+    },
+    "highlighted": false,
+    "kind": "inference",
+    "pinned": false
+  },
+  "openapi": {
+    "openapi": "3.0.4",
+    "info": {
+      "title": "Queue OpenAPI for fal-ai/minimax/image-01/subject-reference",
+      "version": "1.0.0",
+      "description": "The OpenAPI schema for the fal-ai/minimax/image-01/subject-reference queue.",
+      "x-fal-metadata": {
+        "endpointId": "fal-ai/minimax/image-01/subject-reference",
+        "category": "image-to-image",
+        "thumbnailUrl": "https://storage.googleapis.com/fal_cdn/fal/Upscale-3.jpeg",
+        "playgroundUrl": "https://fal.ai/models/fal-ai/minimax/image-01/subject-reference",
+        "documentationUrl": "https://fal.ai/models/fal-ai/minimax/image-01/subject-reference/api"
+      }
+    },
+    "components": {
+      "securitySchemes": {
+        "apiKeyAuth": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "Authorization",
+          "description": "Fal Key"
+        }
+      },
+      "schemas": {
+        "QueueStatus": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "IN_QUEUE",
+                "IN_PROGRESS",
+                "COMPLETED"
+              ]
+            },
+            "request_id": {
+              "type": "string",
+              "description": "The request id."
+            },
+            "response_url": {
+              "type": "string",
+              "description": "The response url."
+            },
+            "status_url": {
+              "type": "string",
+              "description": "The status url."
+            },
+            "cancel_url": {
+              "type": "string",
+              "description": "The cancel url."
+            },
+            "logs": {
+              "type": "object",
+              "description": "The logs.",
+              "additionalProperties": true
+            },
+            "metrics": {
+              "type": "object",
+              "description": "The metrics.",
+              "additionalProperties": true
+            },
+            "queue_position": {
+              "type": "integer",
+              "description": "The queue position."
+            }
+          },
+          "required": [
+            "status",
+            "request_id"
+          ]
+        },
+        "MinimaxImage01SubjectReferenceInput": {
+          "properties": {
+            "aspect_ratio": {
+              "type": "string",
+              "title": "Aspect Ratio",
+              "enum": [
+                "1:1",
+                "16:9",
+                "4:3",
+                "3:2",
+                "2:3",
+                "3:4",
+                "9:16",
+                "21:9"
+              ],
+              "default": "1:1",
+              "description": "Aspect ratio of the generated image"
+            },
+            "image_url": {
+              "examples": [
+                "https://v3.fal.media/files/koala/hQwSnkWm8FDjou5SwLNuX_c223cf93-0036-4b18-bbea-bf6d0da7f210.png"
+              ],
+              "type": "string",
+              "title": "Image Url",
+              "description": "URL of the subject reference image to use for consistent character appearance"
+            },
+            "num_images": {
+              "type": "integer",
+              "title": "Num Images",
+              "minimum": 1,
+              "default": 1,
+              "maximum": 9,
+              "description": "Number of images to generate (1-9)"
+            },
+            "prompt_optimizer": {
+              "type": "boolean",
+              "title": "Prompt Optimizer",
+              "default": false,
+              "description": "Whether to enable automatic prompt optimization"
+            },
+            "prompt": {
+              "minLength": 1,
+              "examples": [
+                "A beautiful woman with a crown on her head."
+              ],
+              "type": "string",
+              "title": "Prompt",
+              "maxLength": 1500,
+              "description": "Text prompt for image generation (max 1500 characters)"
+            }
+          },
+          "x-fal-order-properties": [
+            "prompt",
+            "image_url",
+            "aspect_ratio",
+            "num_images",
+            "prompt_optimizer"
+          ],
+          "title": "MiniMaxTextToImageWithReferenceRequest",
+          "type": "object",
+          "required": [
+            "prompt",
+            "image_url"
+          ]
+        },
+        "MinimaxImage01SubjectReferenceOutput": {
+          "properties": {
+            "images": {
+              "examples": [
+                [
+                  {
+                    "file_size": 239709,
+                    "url": "https://v3.fal.media/files/lion/1bfHvTwZGzK59EYAi2OG7_image.jpg",
+                    "content_type": "image/jpeg",
+                    "file_name": "image.jpg"
+                  }
+                ]
+              ],
+              "type": "array",
+              "title": "Images",
+              "items": {
+                "$ref": "#/components/schemas/File"
+              },
+              "description": "Generated images"
+            }
+          },
+          "x-fal-order-properties": [
+            "images"
+          ],
+          "title": "MiniMaxTextToImageWithReferenceOutput",
+          "type": "object",
+          "required": [
+            "images"
+          ]
+        },
+        "File": {
+          "properties": {
+            "file_size": {
+              "examples": [
+                4404019
+              ],
+              "title": "File Size",
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The size of the file in bytes."
+            },
+            "url": {
+              "type": "string",
+              "title": "Url",
+              "description": "The URL where the file can be downloaded from."
+            },
+            "content_type": {
+              "examples": [
+                "image/png"
+              ],
+              "title": "Content Type",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The mime type of the file."
+            },
+            "file_name": {
+              "examples": [
+                "z9RV14K95DvU.png"
+              ],
+              "title": "File Name",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The name of the file. It will be auto-generated if not provided."
+            }
+          },
+          "x-fal-order-properties": [
+            "url",
+            "content_type",
+            "file_name",
+            "file_size"
+          ],
+          "title": "File",
+          "type": "object",
+          "required": [
+            "url"
+          ]
+        }
+      }
+    },
+    "paths": {
+      "/fal-ai/minimax/image-01/subject-reference/requests/{request_id}/status": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            },
+            {
+              "name": "logs",
+              "in": "query",
+              "required": false,
+              "schema": {
+                "type": "number",
+                "description": "Whether to include logs (`1`) in the response or not (`0`)."
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/minimax/image-01/subject-reference/requests/{request_id}/cancel": {
+        "put": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The request was cancelled.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "description": "Whether the request was cancelled successfully."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/minimax/image-01/subject-reference": {
+        "post": {
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MinimaxImage01SubjectReferenceInput"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "The request status.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/QueueStatus"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/fal-ai/minimax/image-01/subject-reference/requests/{request_id}": {
+        "get": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "description": "Request ID"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Result of the request.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/MinimaxImage01SubjectReferenceOutput"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "servers": [
+      {
+        "url": "https://queue.fal.run"
+      }
+    ],
+    "security": [
+      {
+        "apiKeyAuth": []
+      }
+    ]
+  }
+}
