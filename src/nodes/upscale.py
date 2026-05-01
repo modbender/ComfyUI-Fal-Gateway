@@ -3,7 +3,7 @@ from __future__ import annotations
 from .base import _FalGatewayNodeBase
 
 
-class FalUpscale(_FalGatewayNodeBase):
+class FalGatewayUpscale(_FalGatewayNodeBase):
     CATEGORY_FILTER = "image-to-image"
     SHAPE_FILTER = ("upscale",)
     NODE_DISPLAY_LABEL = "Fal Upscale"

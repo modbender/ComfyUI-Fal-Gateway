@@ -147,6 +147,8 @@ _DEFAULT_CATEGORIES = (
     "image-to-video",
     "text-to-image",
     "image-to-image",
+    "llm",
+    "vision",
 )
 
 

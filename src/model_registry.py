@@ -93,9 +93,25 @@ def _write_cache(models: list[ModelEntry]) -> None:
         _log.warning("cache write failed: %s", exc)
 
 
+# Single source of truth for category-level fal taxonomy. Adding a new category
+# is one row here — `_synthesize_widgets`, `_shape_from_category`, and
+# `_ACCEPTED_CATEGORIES` all derive from this map.
+_CATEGORY_CONFIG: dict[str, dict[str, Any]] = {
+    "text-to-video":  {"shape": "text_only",    "needs_image": False},
+    "image-to-video": {"shape": "single_image", "needs_image": True},
+    "text-to-image":  {"shape": "text_only",    "needs_image": False},
+    "image-to-image": {"shape": "single_image", "needs_image": True},
+    "llm":            {"shape": "text_only",    "needs_image": False},
+    "vision":         {"shape": "text_only",    "needs_image": True},
+}
+
+_ACCEPTED_CATEGORIES = tuple(_CATEGORY_CONFIG.keys())
+
+
 def _synthesize_widgets(category: str) -> list[WidgetSpec]:
     """Default widget set for a model with no curated spec. Used as a fallback when
     the OpenAPI schema is unavailable (no-key cold-start, parse errors)."""
+    cfg = _CATEGORY_CONFIG.get(category, {})
     base = [
         WidgetSpec(
             name="prompt",
@@ -106,7 +122,7 @@ def _synthesize_widgets(category: str) -> list[WidgetSpec]:
             payload_key="prompt",
         ),
     ]
-    if category in ("image-to-video", "image-to-image"):
+    if cfg.get("needs_image"):
         base.append(
             WidgetSpec(
                 name="image",
@@ -120,19 +136,7 @@ def _synthesize_widgets(category: str) -> list[WidgetSpec]:
 
 def _shape_from_category(category: str) -> str:
     """Best-effort shape inference without OpenAPI."""
-    if category in ("text-to-video", "text-to-image"):
-        return "text_only"
-    if category in ("image-to-video", "image-to-image"):
-        return "single_image"
-    return "text_only"
-
-
-_ACCEPTED_CATEGORIES = (
-    "text-to-video",
-    "image-to-video",
-    "text-to-image",
-    "image-to-image",
-)
+    return _CATEGORY_CONFIG.get(category, {}).get("shape", "text_only")
 
 
 def _entry_from_raw(raw: dict[str, Any]) -> ModelEntry | None:

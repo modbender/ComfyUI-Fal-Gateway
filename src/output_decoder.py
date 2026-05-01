@@ -82,12 +82,48 @@ def _image_url_from_result(result: dict[str, Any]) -> str:
     )
 
 
+def _text_from_result(result: dict[str, Any]) -> str:
+    """Walk fal LLM/VLM response shapes.
+
+    Recognised shapes (priority order):
+      - {response: "..."}                                — most fal LLMs
+      - {output: "..."}                                  — some endpoints
+      - {text: "..."}                                    — some endpoints
+      - {choices: [{message: {content: "..."}}, ...]}    — OpenRouter / OpenAI-compatible chat
+    """
+    for key in ("response", "output", "text"):
+        value = result.get(key)
+        if isinstance(value, str):
+            return value
+
+    choices = result.get("choices")
+    if isinstance(choices, list) and choices:
+        first = choices[0]
+        if isinstance(first, dict):
+            message = first.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+
+    raise RuntimeError(
+        f"could not find text response in fal result: keys={list(result.keys())}"
+    )
+
+
 def extract_artifact_url(result: dict[str, Any], kind: str) -> str:
-    """Dispatch to the appropriate URL extractor."""
+    """Dispatch to the appropriate URL extractor.
+
+    For `kind == "text"`, "URL" is a slight misnomer — text outputs aren't
+    downloaded, so we return the response string itself; `decode_artifact`
+    then passes it through unchanged.
+    """
     if kind == "video":
         return _video_url_from_result(result)
     if kind == "image":
         return _image_url_from_result(result)
+    if kind == "text":
+        return _text_from_result(result)
     raise NotImplementedError(f"unknown artifact kind: {kind!r}")
 
 
@@ -123,12 +159,18 @@ async def fetch_image_as_tensor(url: str) -> "torch.Tensor":
     return tensor
 
 
-async def decode_artifact(url: str, kind: str) -> "torch.Tensor":
-    """Async dispatcher: route a URL to the right decoder by output kind."""
+async def decode_artifact(url: str, kind: str):
+    """Async dispatcher: route a URL to the right decoder by output kind.
+
+    For `text`, the value passed in IS the response string (extracted by
+    `extract_artifact_url`); we return it unchanged.
+    """
     if kind == "video":
         from .fal_downloads import fetch_video_as_frames
 
         return await fetch_video_as_frames(url)
     if kind == "image":
         return await fetch_image_as_tensor(url)
+    if kind == "text":
+        return url
     raise NotImplementedError(f"unknown artifact kind: {kind!r}")

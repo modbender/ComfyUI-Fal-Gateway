@@ -32,12 +32,12 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/anime/ComfyUI-Fal-Gateway"
-Issues = "https://github.com/anime/ComfyUI-Fal-Gateway/issues"
+Repository = "https://github.com/modbender/ComfyUI-Fal-Gateway"
+Issues = "https://github.com/modbender/ComfyUI-Fal-Gateway/issues"
 
 [tool.comfy]
 PublisherId = ""
-DisplayName = "ComfyUI-Fal-Gateway"
+DisplayName = "Fal-Gateway"
 Icon = ""
 
 [tool.pytest.ini_options]

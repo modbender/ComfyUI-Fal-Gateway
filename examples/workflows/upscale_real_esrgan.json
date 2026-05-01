@@ -6,7 +6,7 @@
     }
   },
   "2": {
-    "class_type": "FalUpscale",
+    "class_type": "FalGatewayUpscale",
     "inputs": {
       "model_id": "[fal-ai] Upscale Images — fal-ai/esrgan",
       "prompt": "",

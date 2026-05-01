@@ -86,7 +86,8 @@ app.registerExtension({
   },
 });
 
-// Refresh-cache right-click option on all seven Fal-Gateway nodes.
+// Refresh-cache + dynamic-widget extensions cover every Fal-Gateway node.
+// Adding a new node = one entry here.
 const FAL_NODE_TYPES = new Set([
   "FalGatewayT2V",
   "FalGatewayI2V",
@@ -94,7 +95,9 @@ const FAL_NODE_TYPES = new Set([
   "FalGatewayT2I",
   "FalGatewayI2I",
   "FalGatewayRef2I",
-  "FalUpscale",
+  "FalGatewayUpscale",
+  "FalGatewayT2T",
+  "FalGatewayI2T",
 ]);
 const REFRESH_ROUTE = "/fal_gateway/refresh";
 
