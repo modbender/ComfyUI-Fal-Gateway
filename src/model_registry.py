@@ -329,14 +329,22 @@ def list_ids(category: str, shapes: tuple[str, ...] | None = None) -> list[str]:
 # --------------------------------------------------------------------------
 # Display-string helpers (provider-prefixed dropdown labels).
 #
-# Format: `[<provider>] <display_name> — <endpoint_id>`
-# Sorted by provider then display_name so type-ahead "kling" jumps straight to
-# the Kling family. The endpoint_id is appended for disambiguation when two
-# models share a display_name AND so the parser can recover the canonical id.
+# Format:
+#   `[<provider>] <display_name>`                    — when unique
+#   `[<provider>] <display_name> (<endpoint_id>)`    — when display_name
+#                                                       collides within provider
+#
+# Sorted by provider then display_name so type-ahead "kling" jumps to the
+# Kling family. Endpoint_id is shown only as a disambiguator (rarely needed)
+# instead of always appended — keeps labels readable.
+#
+# Backward-compat: `resolve()` accepts the LEGACY long format
+#   `[<provider>] <display_name> — <endpoint_id>`
+# so saved workflows from earlier versions keep working.
 # --------------------------------------------------------------------------
 
 
-_DISPLAY_SEP = " — "  # em dash with surrounding spaces; rare in real display names
+_LEGACY_DISPLAY_SEP = " — "  # em-dash separator used by the legacy long format
 
 
 def extract_provider(endpoint_id: str) -> str:
@@ -346,27 +354,33 @@ def extract_provider(endpoint_id: str) -> str:
     return endpoint_id.split("/", 1)[0]
 
 
-def build_display_string(entry: ModelEntry) -> str:
-    provider = extract_provider(entry.id)
-    return f"[{provider}] {entry.display_name}{_DISPLAY_SEP}{entry.id}"
+def _build_display_map(entries: list[ModelEntry]) -> dict[str, str]:
+    """Compute `{endpoint_id: display_string}` for a list of entries.
 
-
-def parse_display_string(value: str) -> str:
-    """Recover the endpoint_id from a display string `[provider] Name — endpoint`.
-
-    Strict: raises `ValueError` on anything that doesn't match the format.
-    The model_id widget always serializes display strings, so callers should
-    never see anything else.
+    Display strings use the short form unless display_name collides within
+    a provider — in which case the endpoint_id is appended in parens.
     """
-    if not value or not isinstance(value, str):
-        raise ValueError(f"empty or non-string value: {value!r}")
-    if not value.startswith("["):
-        raise ValueError(f"not a display string (no '[provider]' prefix): {value!r}")
-    # Split on the LAST separator so display names containing " — " survive.
-    idx = value.rfind(_DISPLAY_SEP)
-    if idx < 0:
-        raise ValueError(f"not a display string (no ' — ' separator): {value!r}")
-    return value[idx + len(_DISPLAY_SEP):]
+    from collections import defaultdict
+
+    bucket: dict[tuple[str, str], list[ModelEntry]] = defaultdict(list)
+    for e in entries:
+        bucket[(extract_provider(e.id), e.display_name)].append(e)
+
+    out: dict[str, str] = {}
+    for (provider, name), members in bucket.items():
+        if len(members) == 1:
+            out[members[0].id] = f"[{provider}] {name}"
+        else:
+            for m in members:
+                out[m.id] = f"[{provider}] {name} ({m.id})"
+    return out
+
+
+def build_display_string(entry: ModelEntry) -> str:
+    """Single-entry helper. For lists, prefer `_build_display_map` which
+    can detect collisions across siblings."""
+    provider = extract_provider(entry.id)
+    return f"[{provider}] {entry.display_name}"
 
 
 def list_display_strings(
@@ -378,13 +392,46 @@ def list_display_strings(
         entries,
         key=lambda e: (extract_provider(e.id).lower(), e.display_name.lower(), e.id),
     )
-    return [build_display_string(e) for e in entries_sorted]
+    display_map = _build_display_map(entries_sorted)
+    return [display_map[e.id] for e in entries_sorted]
+
+
+def _parse_legacy_display_string(value: str) -> str | None:
+    """Pull the endpoint_id out of `[provider] Name — endpoint_id` (legacy).
+
+    Returns None if `value` doesn't match the legacy long form.
+    """
+    idx = value.rfind(_LEGACY_DISPLAY_SEP)
+    if idx < 0:
+        return None
+    return value[idx + len(_LEGACY_DISPLAY_SEP):]
 
 
 def resolve(value: str) -> ModelEntry | None:
     """Look up a model by its display string. Returns None if unknown.
 
-    Raises `ValueError` on malformed input — callers handle this as a 400.
+    Recognises three cases:
+      1. Current short form `[provider] DisplayName` → reverse-lookup via display_map
+      2. Current collision form `[provider] DisplayName (endpoint_id)` → reverse-lookup
+      3. LEGACY `[provider] DisplayName — endpoint_id` → trailing-id parse (back-compat)
     """
-    endpoint_id = parse_display_string(value)
-    return get(endpoint_id)
+    if not value or not isinstance(value, str):
+        raise ValueError(f"empty or non-string value: {value!r}")
+    if not value.startswith("["):
+        raise ValueError(f"not a display string (no '[provider]' prefix): {value!r}")
+
+    # Build a reverse map across the entire registry. Cheap (~hundreds of entries).
+    all_entries = _load()
+    forward = _build_display_map(all_entries)
+    reverse = {v: k for k, v in forward.items()}
+
+    endpoint_id = reverse.get(value)
+    if endpoint_id is not None:
+        return get(endpoint_id)
+
+    # Legacy long-format fallback for saved workflows from earlier versions.
+    legacy_id = _parse_legacy_display_string(value)
+    if legacy_id is not None:
+        return get(legacy_id)
+
+    raise ValueError(f"display string didn't resolve to a model: {value!r}")

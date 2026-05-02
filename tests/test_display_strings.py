@@ -1,13 +1,13 @@
 """Tests for the model dropdown display-string helpers.
 
-Format: `[<provider>] <display_name> — <endpoint_id>`
+Format:
+  - `[<provider>] <display_name>`                       (default — concise)
+  - `[<provider>] <display_name> (<endpoint_id>)`       (collision disambiguator)
+  - `[<provider>] <display_name> — <endpoint_id>`       (LEGACY; resolve()
+                                                          accepts for back-compat)
 
 The backend stores models keyed by raw endpoint_id, but the dropdown shows
-display strings so users can search by provider/family. We test:
-  - format symmetry: build → parse round-trips the endpoint_id
-  - the parser tolerates `--` and other dashes in display names
-  - provider extraction handles 1-segment and N-segment ids
-  - the registry's `resolve` accepts EITHER format (back-compat for saved workflows)
+display strings so users can search by provider/family.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ from __future__ import annotations
 import pytest
 
 from src.model_registry import (
+    _build_display_map,
     build_display_string,
     extract_provider,
-    parse_display_string,
 )
 from src.widget_spec import ModelEntry
 
@@ -56,85 +56,111 @@ def test_extract_provider_handles_empty_string():
 # ---- build_display_string -------------------------------------------------
 
 
-def test_build_display_string_includes_provider_name_and_endpoint():
+def test_build_display_string_includes_provider_and_name():
     e = _entry("bytedance/seedance-2.0/image-to-video", "Seedance 2 Image to Video")
     s = build_display_string(e)
-    assert "[bytedance]" in s
-    assert "Seedance 2 Image to Video" in s
-    assert "bytedance/seedance-2.0/image-to-video" in s
+    assert s == "[bytedance] Seedance 2 Image to Video"
 
 
-def test_build_display_string_uses_em_dash_separator():
-    """The em-dash is intentional — easier to spot visually and rare in display names."""
+def test_build_display_string_omits_endpoint_id_in_short_form():
+    """Short form is the default — endpoint_id only appears via collision map."""
     e = _entry("fal-ai/flux/dev", "FLUX.1 [dev]")
     s = build_display_string(e)
-    assert " — " in s
+    assert " — " not in s, "legacy em-dash + endpoint_id format should be gone"
+    assert "fal-ai/flux/dev" not in s
 
 
-# ---- parse_display_string -------------------------------------------------
+# ---- collision-aware display map ----------------------------------------
 
 
-def test_parse_display_string_round_trips_endpoint_id():
-    eid = "bytedance/seedance-2.0/image-to-video"
-    e = _entry(eid, "Seedance 2 I2V")
-    s = build_display_string(e)
-    assert parse_display_string(s) == eid
+def test_display_map_uses_short_form_when_unique():
+    entries = [
+        _entry("fal-ai/flux/dev", "FLUX dev"),
+        _entry("fal-ai/flux/pro", "FLUX pro"),
+    ]
+    m = _build_display_map(entries)
+    assert m["fal-ai/flux/dev"] == "[fal-ai] FLUX dev"
+    assert m["fal-ai/flux/pro"] == "[fal-ai] FLUX pro"
 
 
-def test_parse_display_string_handles_display_name_with_internal_dashes():
-    """Display names commonly contain dashes — make sure we split on the LAST em-dash."""
-    eid = "fal-ai/some/model"
-    e = _entry(eid, "Some — fancy — name with — em-dashes")
-    s = build_display_string(e)
-    assert parse_display_string(s) == eid
+def test_display_map_disambiguates_colliding_display_names():
+    entries = [
+        _entry("fal-ai/kling-video/v2.5/pro/image-to-video", "Kling Video"),
+        _entry("fal-ai/kling-video/v3/4k/image-to-video", "Kling Video"),
+    ]
+    m = _build_display_map(entries)
+    # Both entries got disambiguated with their endpoint_id in parens.
+    assert m["fal-ai/kling-video/v2.5/pro/image-to-video"] == \
+        "[fal-ai] Kling Video (fal-ai/kling-video/v2.5/pro/image-to-video)"
+    assert m["fal-ai/kling-video/v3/4k/image-to-video"] == \
+        "[fal-ai] Kling Video (fal-ai/kling-video/v3/4k/image-to-video)"
 
 
-def test_parse_display_string_raises_on_raw_endpoint_id():
-    """Raw endpoint_ids without the [provider] prefix are rejected."""
-    with pytest.raises(ValueError, match="prefix"):
-        parse_display_string("bytedance/seedance-2.0/image-to-video")
-
-
-def test_parse_display_string_raises_on_missing_separator():
-    """A string that starts with [provider] but lacks the em-dash separator is invalid."""
-    with pytest.raises(ValueError, match="separator"):
-        parse_display_string("[bytedance] Seedance 2 with no separator at all")
-
-
-def test_parse_display_string_raises_on_empty_input():
-    with pytest.raises(ValueError):
-        parse_display_string("")
-
-
-def test_parse_display_string_raises_on_non_string():
-    with pytest.raises(ValueError):
-        parse_display_string(None)  # type: ignore[arg-type]
+def test_display_map_treats_different_providers_as_non_collisions():
+    """Same display name across providers is fine — provider prefix already differs."""
+    entries = [
+        _entry("fal-ai/foo", "FLUX"),
+        _entry("alibaba/bar", "FLUX"),
+    ]
+    m = _build_display_map(entries)
+    assert m["fal-ai/foo"] == "[fal-ai] FLUX"
+    assert m["alibaba/bar"] == "[alibaba] FLUX"
 
 
 # ---- registry.resolve (display-string lookup) -----------------------------
 
 
-def test_resolve_accepts_display_string():
+def test_resolve_accepts_short_form_display_string():
     from src import model_registry
 
     bundled = model_registry.get("fal-ai/bytedance/seedance/v1/lite/image-to-video")
     assert bundled is not None
-    display = build_display_string(bundled)
-    entry = model_registry.resolve(display)
+    display = f"[fal-ai] {bundled.display_name}"
+    # Short form may or may not collide with siblings — `resolve` handles both.
+    entry = model_registry.resolve(display) or model_registry.resolve(
+        f"[fal-ai] {bundled.display_name} ({bundled.id})"
+    )
     assert entry is not None
     assert entry.id == bundled.id
 
 
-def test_resolve_returns_none_for_unknown_display_string():
+def test_resolve_accepts_legacy_long_format():
+    """Saved workflows from earlier versions used `[provider] Name — endpoint_id`."""
     from src import model_registry
 
-    fake_display = "[fal-ai] Nonexistent Model — fal-ai/nonexistent/model"
-    assert model_registry.resolve(fake_display) is None
+    bundled = model_registry.get("fal-ai/bytedance/seedance/v1/lite/image-to-video")
+    assert bundled is not None
+    legacy = f"[fal-ai] {bundled.display_name} — {bundled.id}"
+    entry = model_registry.resolve(legacy)
+    assert entry is not None
+    assert entry.id == bundled.id
+
+
+def test_resolve_raises_when_unknown_display_string():
+    from src import model_registry
+
+    fake = "[fal-ai] Nonexistent Brand New Model"
+    with pytest.raises(ValueError, match="didn't resolve"):
+        model_registry.resolve(fake)
 
 
 def test_resolve_raises_on_malformed_input():
-    """Malformed values are caller errors — not silent None."""
+    """Values without the [provider] prefix are caller errors."""
     from src import model_registry
 
     with pytest.raises(ValueError):
         model_registry.resolve("fal-ai/some/raw-id")
+
+
+def test_resolve_raises_on_empty_input():
+    from src import model_registry
+
+    with pytest.raises(ValueError):
+        model_registry.resolve("")
+
+
+def test_resolve_raises_on_non_string():
+    from src import model_registry
+
+    with pytest.raises(ValueError):
+        model_registry.resolve(None)  # type: ignore[arg-type]
