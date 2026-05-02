@@ -211,3 +211,73 @@ def test_currency_defaults_to_usd_when_missing():
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([page])):
         out = fetch_all_pricing(["fal-ai/a"])
     assert out["fal-ai/a"]["currency"] == "USD"
+
+
+# ---- 404 handling: fal returns 404 for the whole batch when any id is unknown ----
+
+
+def _http_404():
+    return urllib_error.HTTPError(
+        url="x", code=404, msg="Not Found", hdrs=None, fp=io.BytesIO(b"")
+    )
+
+
+def test_404_on_full_batch_bisects_to_recover_known_ids():
+    """fal returns 404 for the entire batch when one id is unknown. We halve
+    until the unknown id is isolated, recovering pricing for the rest.
+    Two-id batch: first call 404s, second call (left half = id A) succeeds,
+    third call (right half = id B unknown) 404s.
+    """
+    err = _http_404()
+    success_a = {"prices": [{"endpoint_id": "fal-ai/a", "unit_price": 0.01, "unit": "image"}]}
+    err2 = _http_404()
+    with patch(
+        "src.catalog_client.urllib_request.urlopen", _make_urlopen([err, success_a, err2])
+    ):
+        with patch("src.catalog_client.time.sleep"):  # skip throttle in test
+            out = fetch_all_pricing(["fal-ai/a", "fal-ai/unknown"])
+    assert "fal-ai/a" in out
+    assert "fal-ai/unknown" not in out
+
+
+def test_404_on_single_id_does_not_recurse_infinitely():
+    """A 1-id batch that 404s must be skipped (no further bisection)."""
+    with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([_http_404()])):
+        with patch("src.catalog_client.time.sleep"):
+            out = fetch_all_pricing(["fal-ai/unknown"])
+    assert out == {}
+
+
+def test_403_treated_as_terminal_breaks_remaining_batches():
+    """403 means future batches will also fail — stop early instead of looping."""
+    err = urllib_error.HTTPError(
+        url="x", code=403, msg="Forbidden", hdrs=None, fp=io.BytesIO(b"")
+    )
+    captured = []
+
+    def respond_or_403(url):
+        if not captured:
+            captured.append(url)
+            raise err
+        captured.append(url)
+        return {"prices": []}
+
+    def _fake_urlopen(req, timeout=None):
+        return _FakeResponse(respond_or_403(req.full_url))
+
+    # Build many batches' worth of ids; only the first should be attempted.
+    ids = [f"fal-ai/m{i}" for i in range(120)]
+
+    def _stop_after_first_403(req, timeout=None):
+        url = req.full_url
+        captured.append(url)
+        raise err  # always 403
+
+    with patch("src.catalog_client.urllib_request.urlopen", _stop_after_first_403):
+        with patch("src.catalog_client.time.sleep"):
+            out = fetch_all_pricing(ids)
+    assert out == {}
+    # 3 batches × 4 retry attempts = 12 max if we kept going. Terminal short-
+    # circuit caps the requests at exactly 1 (the first batch only, no retries
+    # because terminal short-circuits the retry loop too).
+    assert len(captured) == 1, f"403 should stop after first call, got {len(captured)}"
