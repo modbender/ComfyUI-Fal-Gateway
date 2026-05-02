@@ -46,6 +46,10 @@ class ModelEntry:
     shape: str  # "text_only" | "single_image" | "flf" | "multi_ref"
     description: str = ""
     widgets: list[WidgetSpec] = field(default_factory=list)
+    # Pricing from fal's /v1/models/pricing API. None when unavailable.
+    unit_price: float | None = None
+    unit: str | None = None  # "image", "second", "megapixel", "1M_tokens", etc.
+    currency: str | None = None  # "USD" today; stored for future-proofing
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +59,9 @@ class ModelEntry:
             "shape": self.shape,
             "description": self.description,
             "widgets": [w.to_dict() for w in self.widgets],
+            "unit_price": self.unit_price,
+            "unit": self.unit,
+            "currency": self.currency,
         }
 
     @classmethod
@@ -67,4 +74,7 @@ class ModelEntry:
             shape=data["shape"],
             description=data.get("description", ""),
             widgets=widgets,
+            unit_price=data.get("unit_price"),
+            unit=data.get("unit"),
+            currency=data.get("currency"),
         )

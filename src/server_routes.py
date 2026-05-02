@@ -123,6 +123,9 @@ def register_routes(routes: web.RouteTableDef) -> None:
                 "category": entry.category,
                 "shape": entry.shape,
                 "widgets": [w.to_dict() for w in entry.widgets],
+                "unit_price": entry.unit_price,
+                "unit": entry.unit,
+                "currency": entry.currency,
             }
         )
 
