@@ -100,6 +100,7 @@ const FAL_NODE_TYPES = new Set([
   "FalGatewayI2T",
 ]);
 const REFRESH_ROUTE = "/fal_gateway/refresh";
+const PRICING_REFRESH_ROUTE = "/fal_gateway/pricing_refresh";
 
 async function refreshFalCatalog() {
   let res;
@@ -118,6 +119,14 @@ async function refreshFalCatalog() {
   if (!res.ok || data.ok === false) {
     alert("Fal-Gateway: refresh failed — " + (data.error || res.statusText));
     return;
+  }
+  // Also clear the pricing cache so the next sweep refetches everything
+  // (catalog refresh forces a model rediscovery; pricing data should follow).
+  // Best-effort — failure here doesn't block the catalog refresh message.
+  try {
+    await api.fetchApi(PRICING_REFRESH_ROUTE, { method: "POST" });
+  } catch (_e) {
+    /* fire-and-forget */
   }
   alert(
     data.message ||
@@ -208,25 +217,34 @@ function pickWidgetValue(widgets, names) {
 }
 
 // Registry: one entry per fal `unit` value. Adding a new unit = one entry.
-// Each formula receives {price, currency, widgets} (widgets keyed by name)
-// and returns the SHORT label string for the title bar.
+// Each formula receives {price, currency, widgets} and returns
+// `{label, cost}`:
+//   label — short string for the title bar
+//   cost  — numeric USD per generation (null for token-priced models where
+//           output length isn't predictable; those skip tier coloring)
 const COST_FORMULAS = {
-  image: ({ price, currency }) => `${fmtMoney(price, currency)}/img`,
+  image: ({ price, currency }) => ({
+    label: `${fmtMoney(price, currency)}/img`,
+    cost: price,
+  }),
 
   second: ({ price, currency, widgets }) => {
     const dur = pickWidgetValue(widgets, ["duration", "duration_seconds", "seconds"]);
     if (dur != null && dur > 0) {
-      return `${fmtMoney(price * dur, currency)} (${dur}s)`;
+      return { label: `${fmtMoney(price * dur, currency)} (${dur}s)`, cost: price * dur };
     }
-    return `${fmtMoney(price, currency)}/s`;
+    return { label: `${fmtMoney(price, currency)}/s`, cost: price };
   },
 
   minute: ({ price, currency, widgets }) => {
     const dur = pickWidgetValue(widgets, ["duration", "duration_seconds", "seconds"]);
     if (dur != null && dur > 0) {
-      return `${fmtMoney((price * dur) / 60, currency)} (${dur}s)`;
+      return {
+        label: `${fmtMoney((price * dur) / 60, currency)} (${dur}s)`,
+        cost: (price * dur) / 60,
+      };
     }
-    return `${fmtMoney(price, currency)}/min`;
+    return { label: `${fmtMoney(price, currency)}/min`, cost: price / 60 };
   },
 
   megapixel: ({ price, currency, widgets }) => {
@@ -234,39 +252,76 @@ const COST_FORMULAS = {
     const h = pickWidgetValue(widgets, ["height"]);
     if (w && h) {
       const mp = (w * h) / 1_000_000;
-      return `${fmtMoney(price * mp, currency)} (${mp.toFixed(1)}MP)`;
+      return {
+        label: `${fmtMoney(price * mp, currency)} (${mp.toFixed(1)}MP)`,
+        cost: price * mp,
+      };
     }
-    return `${fmtMoney(price, currency)}/MP`;
+    return { label: `${fmtMoney(price, currency)}/MP`, cost: price };
   },
 
-  "1m_tokens": ({ price, currency }) => `${fmtMoney(price, currency)}/1M tok`,
+  // Token-based pricing: real per-call cost depends on unpredictable I/O
+  // length, so we don't try to estimate. cost: null skips tier coloring
+  // and the painter falls back to the neutral text color.
+  "1m_tokens": ({ price, currency }) => ({
+    label: `${fmtMoney(price, currency)}/1M tok`,
+    cost: null,
+  }),
 
-  token: ({ price, currency }) => `${fmtMoney(price * 1_000_000, currency)}/1M tok`,
+  token: ({ price, currency }) => ({
+    label: `${fmtMoney(price * 1_000_000, currency)}/1M tok`,
+    cost: null,
+  }),
 
-  // Fallback for unknown / future unit types.
-  __default: ({ price, currency, unit }) =>
-    `${fmtMoney(price, currency)}/${unit || "unit"}`,
+  // Fallback for unknown / future unit types — show raw rate, treat as
+  // unknown magnitude (no tier color).
+  __default: ({ price, currency, unit }) => ({
+    label: `${fmtMoney(price, currency)}/${unit || "unit"}`,
+    cost: null,
+  }),
 };
+
+// Tier colors by USD cost magnitude. Adding a new tier = one entry.
+// Tints chosen to read well on dark and light node themes.
+const COST_TIERS = [
+  { max: 0.05, color: "#7ad17a" },        // green   — cheap (< $0.05)
+  { max: 0.50, color: "#e0c050" },        // yellow  — mid   ($0.05–$0.50)
+  { max: 5.00, color: "#e08850" },        // orange  — pricey ($0.50–$5)
+  { max: Infinity, color: "#e05050" },    // red     — expensive (> $5)
+];
+const COST_NEUTRAL_COLOR = "#9ad";  // unknown magnitude OR token-priced
+const COST_LOADING_COLOR = "#888";  // pricing not yet fetched
+
+function pickTierColor(usd) {
+  if (typeof usd !== "number" || Number.isNaN(usd)) return COST_NEUTRAL_COLOR;
+  return (COST_TIERS.find((t) => usd <= t.max) ?? COST_TIERS[COST_TIERS.length - 1]).color;
+}
 
 function recomputeCost(node) {
   const pricing = node._falPricing;
   if (!pricing || pricing.unit_price == null) {
     node._falCostText = COST_UNAVAILABLE;
+    node._falCostUsd = null;
+    node._falCostState = pricing ? "unavailable" : "loading";
   } else {
     const unitKey = normalizeUnit(pricing.unit);
     const formula = COST_FORMULAS[unitKey] ?? COST_FORMULAS.__default;
-    node._falCostText = formula({
+    const result = formula({
       price: pricing.unit_price,
       currency: pricing.currency || "USD",
       unit: pricing.unit,
       widgets: node.widgets || [],
     });
+    node._falCostText = result.label;
+    node._falCostUsd = result.cost;
+    node._falCostState = "ok";
   }
   node.setDirtyCanvas(true, true);
 }
 
 // LiteGraph hook: paint the cost text into the title bar, right-aligned.
 // Patched onto the node prototype once per class via beforeRegisterNodeDef.
+// Color is tier-based when we have a numeric run-cost, neutral otherwise.
 function patchCostHeaderDrawing(nodeType) {
   const origOnDraw = nodeType.prototype.onDrawForeground;
   nodeType.prototype.onDrawForeground = function (ctx) {
@@ -274,9 +329,14 @@ function patchCostHeaderDrawing(nodeType) {
     if (this.flags?.collapsed) return r;
     const text = this._falCostText ?? COST_LOADING;
     if (!text) return r;
+    let color = COST_NEUTRAL_COLOR;
+    if (this._falCostState === "loading") color = COST_LOADING_COLOR;
+    else if (this._falCostState === "ok" && typeof this._falCostUsd === "number") {
+      color = pickTierColor(this._falCostUsd);
+    }
     ctx.save();
     ctx.font = "11px Arial, sans-serif";
-    ctx.fillStyle = "#9ad";
+    ctx.fillStyle = color;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     // LiteGraph's title bar sits at y in [-NODE_TITLE_HEIGHT, 0] relative to
@@ -299,8 +359,8 @@ function modelIdToBase64Url(modelId) {
     .replace(/=+$/, "");
 }
 
-async function fetchModelSchema(modelId) {
-  if (SCHEMA_CACHE.has(modelId)) return SCHEMA_CACHE.get(modelId);
+async function fetchModelSchema(modelId, { bustCache = false } = {}) {
+  if (!bustCache && SCHEMA_CACHE.has(modelId)) return SCHEMA_CACHE.get(modelId);
   const url = `${SCHEMA_ROUTE}/${modelIdToBase64Url(modelId)}`;
   const res = await api.fetchApi(url);
   if (!res.ok) {
@@ -489,4 +549,42 @@ app.registerExtension({
       return r;
     };
   },
+});
+
+// ============================================================================
+// Pricing-updated ws listener
+// ============================================================================
+// Backend (`pricing_cache._refresh_async`) emits `fal_gateway/pricing_updated`
+// after a successful pricing sweep. We invalidate the per-tab schema cache
+// and refresh every placed Fal-Gateway node's pricing without touching its
+// widgets — cost labels go from "Pricing loading…" → live tier-colored
+// values without the user lifting a finger.
+
+async function refreshPricingForNode(node) {
+  const modelIdWidget = node.widgets?.find((w) => w?.name === "model_id");
+  const modelId = modelIdWidget?.value;
+  if (!modelId || modelId === "<no models available>") return;
+  let schema;
+  try {
+    schema = await fetchModelSchema(modelId, { bustCache: true });
+  } catch (err) {
+    console.warn(`[FalGateway] pricing refresh fetch failed for ${modelId}:`, err);
+    return;
+  }
+  node._falPricing = {
+    unit_price: schema.unit_price ?? null,
+    unit: schema.unit ?? null,
+    currency: schema.currency ?? null,
+  };
+  recomputeCost(node);
+}
+
+api.addEventListener("fal_gateway/pricing_updated", () => {
+  SCHEMA_CACHE.clear();  // any cached schema may have stale pricing fields
+  const nodes = app.graph?._nodes || [];
+  for (const node of nodes) {
+    if (FAL_NODE_TYPES.has(node?.type)) {
+      refreshPricingForNode(node);
+    }
+  }
 });

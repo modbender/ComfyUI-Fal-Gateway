@@ -24,42 +24,23 @@ def _matches_any_llm_exclude(endpoint_id: str) -> bool:
     return any(p.search(endpoint_id) for p in _CATEGORY_EXCLUDE_PATTERNS["llm"])
 
 
-def test_entry_from_raw_assigns_pricing_when_provided():
-    raw = _raw("fal_ai_flux_dev.json")
-    pricing = {
-        "fal-ai/flux/dev": {"unit_price": 0.025, "unit": "image", "currency": "USD"}
-    }
-    entry = _entry_from_raw(raw, pricing=pricing)
-    assert entry is not None
-    assert entry.id == "fal-ai/flux/dev"
-    assert entry.unit_price == 0.025
-    assert entry.unit == "image"
-    assert entry.currency == "USD"
-
-
-def test_entry_from_raw_leaves_pricing_none_when_endpoint_missing():
-    raw = _raw("fal_ai_flux_dev.json")
-    pricing = {"some/other/endpoint": {"unit_price": 0.99}}
-    entry = _entry_from_raw(raw, pricing=pricing)
-    assert entry is not None
-    assert entry.unit_price is None
-    assert entry.unit is None
-    assert entry.currency is None
-
-
-def test_entry_from_raw_handles_no_pricing_dict():
-    """Older paths that don't supply pricing= should still build an entry."""
+def test_entry_from_raw_builds_basic_entry():
     raw = _raw("fal_ai_flux_dev.json")
     entry = _entry_from_raw(raw)
     assert entry is not None
-    assert entry.unit_price is None
+    assert entry.id == "fal-ai/flux/dev"
+    assert entry.category == "text-to-image"
 
 
-def test_entry_from_raw_handles_empty_pricing_dict():
+def test_entry_from_raw_does_not_carry_pricing_fields():
+    """Pricing lives in the separate pricing_cache (v0.4.x). ModelEntry must
+    not have unit_price / unit / currency attributes anymore."""
     raw = _raw("fal_ai_flux_dev.json")
-    entry = _entry_from_raw(raw, pricing={})
+    entry = _entry_from_raw(raw)
     assert entry is not None
-    assert entry.unit_price is None
+    assert not hasattr(entry, "unit_price")
+    assert not hasattr(entry, "unit")
+    assert not hasattr(entry, "currency")
 
 
 # ---- LLM category exclude patterns -------------------------------------

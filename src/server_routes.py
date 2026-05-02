@@ -20,7 +20,7 @@ import os
 
 from aiohttp import web
 
-from . import model_registry
+from . import model_registry, pricing_cache
 
 
 _log = logging.getLogger("fal_gateway.routes")
@@ -115,6 +115,14 @@ def register_routes(routes: web.RouteTableDef) -> None:
                 {"ok": False, "error": f"unknown model_id: {model_id}"}, status=404
             )
 
+        # Trigger a background pricing refresh on first stale-cache schema
+        # lookup. Subsequent requests during the in-flight refresh are no-ops.
+        try:
+            all_ids = [m.id for m in model_registry.all_models()]
+            pricing_cache.trigger_refresh_if_stale(all_ids)
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            _log.debug("pricing refresh trigger failed: %s", exc)
+
         return web.json_response(
             {
                 "ok": True,
@@ -123,9 +131,7 @@ def register_routes(routes: web.RouteTableDef) -> None:
                 "category": entry.category,
                 "shape": entry.shape,
                 "widgets": [w.to_dict() for w in entry.widgets],
-                "unit_price": entry.unit_price,
-                "unit": entry.unit,
-                "currency": entry.currency,
+                **pricing_cache.get_for_response(entry.id),
             }
         )
 
@@ -139,4 +145,29 @@ def register_routes(routes: web.RouteTableDef) -> None:
             count = -1
         return web.json_response(
             {"fal_key_present": key_set, "model_count": count}
+        )
+
+    @routes.post("/fal_gateway/pricing_refresh")
+    async def refresh_pricing(request: web.Request) -> web.Response:
+        """Clear pricing.json and trigger a fresh sweep. Used by the
+        right-click "Fal-Gateway: refresh catalog cache" menu so the next
+        schema lookup re-runs pricing fetch from scratch."""
+        pricing_cache.clear()
+        try:
+            all_ids = [m.id for m in model_registry.all_models()]
+            started = pricing_cache.trigger_refresh_if_stale(all_ids)
+        except Exception as exc:  # noqa: BLE001
+            return web.json_response(
+                {"ok": False, "error": f"refresh trigger failed: {exc}"},
+                status=500,
+            )
+        return web.json_response(
+            {
+                "ok": True,
+                "started": started,
+                "message": (
+                    "Pricing cache cleared. A fresh fetch is running in the "
+                    "background; cost labels will update when it completes."
+                ),
+            }
         )

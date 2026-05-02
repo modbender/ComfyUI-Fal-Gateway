@@ -102,7 +102,7 @@ def test_walks_paginated_cursor_within_batch():
         },
     ]
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen(pages)):
-        out = fetch_all_pricing(["fal-ai/a", "fal-ai/b"])
+        out, _ = fetch_all_pricing(["fal-ai/a", "fal-ai/b"])
     assert "fal-ai/a" in out and "fal-ai/b" in out
     assert out["fal-ai/a"]["unit_price"] == 0.01
     assert out["fal-ai/b"]["unit_price"] == 0.02
@@ -117,7 +117,7 @@ def test_returns_dict_keyed_by_endpoint_id():
         "has_more": False,
     }
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([page])):
-        out = fetch_all_pricing(["fal-ai/flux/dev", "bytedance/seedance"])
+        out, _ = fetch_all_pricing(["fal-ai/flux/dev", "bytedance/seedance"])
     assert out["fal-ai/flux/dev"] == {"unit_price": 0.025, "unit": "image", "currency": "USD"}
     assert out["bytedance/seedance"] == {"unit_price": 0.30, "unit": "second", "currency": "USD"}
 
@@ -127,7 +127,7 @@ def test_omits_endpoints_without_pricing():
     not appear in the returned dict so callers can detect via .get()."""
     page = {"prices": [{"endpoint_id": "fal-ai/a", "unit_price": 0.01, "unit": "image"}]}
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([page])):
-        out = fetch_all_pricing(["fal-ai/a", "fal-ai/no-price"])
+        out, _ = fetch_all_pricing(["fal-ai/a", "fal-ai/no-price"])
     assert "fal-ai/a" in out
     assert "fal-ai/no-price" not in out
 
@@ -138,7 +138,7 @@ def test_handles_401_returns_empty_dict():
         url="x", code=401, msg="Unauthorized", hdrs=None, fp=io.BytesIO(b"")
     )
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([err])):
-        out = fetch_all_pricing(["fal-ai/a"])
+        out, _ = fetch_all_pricing(["fal-ai/a"])
     assert out == {}
 
 
@@ -150,7 +150,7 @@ def test_handles_429_via_retry_with_backoff():
     success = {"prices": [{"endpoint_id": "fal-ai/a", "unit_price": 0.01, "unit": "image"}]}
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([err, success])):
         with patch("src.catalog_client.time.sleep") as mock_sleep:  # avoid real backoff in tests
-            out = fetch_all_pricing(["fal-ai/a"])
+            out, _ = fetch_all_pricing(["fal-ai/a"])
     assert out["fal-ai/a"]["unit_price"] == 0.01
     assert mock_sleep.called  # backoff was invoked
 
@@ -165,7 +165,7 @@ def test_empty_input_returns_empty_dict():
     with patch(
         "src.catalog_client.urllib_request.urlopen", _capture_urlopen(captured, respond)
     ):
-        out = fetch_all_pricing([])
+        out, _ = fetch_all_pricing([])
     assert out == {}
     assert captured == []  # no HTTP calls
 
@@ -189,7 +189,7 @@ def test_tolerates_alternate_envelope_keys():
     """Some endpoints may wrap in `models` instead of `prices`. Both should work."""
     page = {"models": [{"endpoint_id": "fal-ai/a", "unit_price": 0.07, "unit": "second"}]}
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([page])):
-        out = fetch_all_pricing(["fal-ai/a"])
+        out, _ = fetch_all_pricing(["fal-ai/a"])
     assert out["fal-ai/a"]["unit_price"] == 0.07
 
 
@@ -201,7 +201,7 @@ def test_normalizes_alt_field_names():
         ]
     }
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([page])):
-        out = fetch_all_pricing(["fal-ai/a"])
+        out, _ = fetch_all_pricing(["fal-ai/a"])
     assert out["fal-ai/a"]["unit_price"] == 0.15
     assert out["fal-ai/a"]["unit"] == "megapixel"
 
@@ -209,7 +209,7 @@ def test_normalizes_alt_field_names():
 def test_currency_defaults_to_usd_when_missing():
     page = {"prices": [{"endpoint_id": "fal-ai/a", "unit_price": 0.01, "unit": "image"}]}
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([page])):
-        out = fetch_all_pricing(["fal-ai/a"])
+        out, _ = fetch_all_pricing(["fal-ai/a"])
     assert out["fal-ai/a"]["currency"] == "USD"
 
 
@@ -235,7 +235,7 @@ def test_404_on_full_batch_bisects_to_recover_known_ids():
         "src.catalog_client.urllib_request.urlopen", _make_urlopen([err, success_a, err2])
     ):
         with patch("src.catalog_client.time.sleep"):  # skip throttle in test
-            out = fetch_all_pricing(["fal-ai/a", "fal-ai/unknown"])
+            out, _ = fetch_all_pricing(["fal-ai/a", "fal-ai/unknown"])
     assert "fal-ai/a" in out
     assert "fal-ai/unknown" not in out
 
@@ -244,8 +244,60 @@ def test_404_on_single_id_does_not_recurse_infinitely():
     """A 1-id batch that 404s must be skipped (no further bisection)."""
     with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([_http_404()])):
         with patch("src.catalog_client.time.sleep"):
-            out = fetch_all_pricing(["fal-ai/unknown"])
+            out, _ = fetch_all_pricing(["fal-ai/unknown"])
     assert out == {}
+
+
+def test_single_id_404_adds_to_newly_no_pricing():
+    """Confirmed-unknown single id must surface in the newly_no_pricing set
+    so callers can persist a skip-list."""
+    with patch("src.catalog_client.urllib_request.urlopen", _make_urlopen([_http_404()])):
+        with patch("src.catalog_client.time.sleep"):
+            out, no_pricing = fetch_all_pricing(["fal-ai/unknown"])
+    assert out == {}
+    assert no_pricing == {"fal-ai/unknown"}
+
+
+def test_skip_ids_excludes_them_from_request_batches():
+    """When skip_ids is passed, those ids must not appear in any HTTP request."""
+    captured = []
+
+    def respond(url):
+        return {"prices": []}
+
+    with patch(
+        "src.catalog_client.urllib_request.urlopen", _capture_urlopen(captured, respond)
+    ):
+        out, no_pricing = fetch_all_pricing(
+            ["fal-ai/a", "fal-ai/b", "fal-ai/skip-me"],
+            skip_ids={"fal-ai/skip-me"},
+        )
+    assert out == {}
+    assert no_pricing == set()
+    # Only one HTTP request, with the two non-skipped ids.
+    assert len(captured) == 1
+    ids_param = captured[0].split("endpoint_id=", 1)[1].split("&", 1)[0]
+    assert "skip-me" not in ids_param
+    assert "fal-ai" in ids_param
+
+
+def test_skip_ids_eliminates_request_when_all_filtered():
+    """If every id is in skip_ids, no HTTP request should fire."""
+    captured = []
+
+    def respond(url):
+        return {"prices": []}
+
+    with patch(
+        "src.catalog_client.urllib_request.urlopen", _capture_urlopen(captured, respond)
+    ):
+        out, no_pricing = fetch_all_pricing(
+            ["fal-ai/a", "fal-ai/b"],
+            skip_ids={"fal-ai/a", "fal-ai/b"},
+        )
+    assert out == {}
+    assert no_pricing == set()
+    assert captured == []
 
 
 def test_403_treated_as_terminal_breaks_remaining_batches():
@@ -275,7 +327,7 @@ def test_403_treated_as_terminal_breaks_remaining_batches():
 
     with patch("src.catalog_client.urllib_request.urlopen", _stop_after_first_403):
         with patch("src.catalog_client.time.sleep"):
-            out = fetch_all_pricing(ids)
+            out, _ = fetch_all_pricing(ids)
     assert out == {}
     # 3 batches × 4 retry attempts = 12 max if we kept going. Terminal short-
     # circuit caps the requests at exactly 1 (the first batch only, no retries

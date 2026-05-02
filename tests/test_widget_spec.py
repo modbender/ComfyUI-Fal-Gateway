@@ -1,9 +1,9 @@
-"""Tests for WidgetSpec / ModelEntry serialization, focused on the pricing
-round-trip introduced in v0.4.0.
+"""Tests for WidgetSpec / ModelEntry serialization.
 
-The cache file format MUST stay backward compatible: a v3 cache (no pricing
-fields) loads cleanly under the new code, and a v4 cache round-trips
-unit_price/unit/currency without loss.
+ModelEntry no longer carries pricing — pricing lives in src/pricing_cache.py
+under cache/pricing.json. Tests here cover the catalog-only round-trip and
+backward compatibility with v4 caches that DO have stray pricing keys (we
+just ignore them).
 """
 
 from __future__ import annotations
@@ -24,34 +24,22 @@ def _entry(**overrides) -> ModelEntry:
     return ModelEntry(**base)
 
 
-def test_to_dict_includes_pricing_fields_when_set():
-    entry = _entry(unit_price=0.025, unit="image", currency="USD")
-    d = entry.to_dict()
-    assert d["unit_price"] == 0.025
-    assert d["unit"] == "image"
-    assert d["currency"] == "USD"
-
-
-def test_to_dict_includes_none_pricing_when_unset():
-    entry = _entry()
-    d = entry.to_dict()
-    assert d["unit_price"] is None
-    assert d["unit"] is None
-    assert d["currency"] is None
-
-
-def test_from_dict_round_trips_pricing():
-    entry = _entry(unit_price=0.30, unit="second", currency="USD")
+def test_to_dict_round_trip():
+    entry = _entry(
+        widgets=[WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True)],
+    )
     restored = ModelEntry.from_dict(entry.to_dict())
-    assert restored.unit_price == 0.30
-    assert restored.unit == "second"
-    assert restored.currency == "USD"
+    assert restored.id == entry.id
+    assert restored.display_name == entry.display_name
+    assert restored.category == entry.category
+    assert restored.shape == entry.shape
+    assert len(restored.widgets) == 1
+    assert restored.widgets[0].name == "prompt"
 
 
-def test_from_dict_handles_old_cache_without_pricing_keys():
-    """A v3-format cache entry must deserialize without error and yield
-    None pricing — old caches in the wild stay valid until SCHEMA_VERSION
-    invalidation kicks in."""
+def test_from_dict_ignores_legacy_pricing_keys():
+    """v4 caches stored unit_price/unit/currency on the entry. v5 drops them
+    silently — pricing now lives in the separate pricing.json cache."""
     legacy = {
         "id": "fal-ai/flux/dev",
         "display_name": "FLUX.1 [dev]",
@@ -59,21 +47,20 @@ def test_from_dict_handles_old_cache_without_pricing_keys():
         "shape": "text_only",
         "description": "",
         "widgets": [],
+        "unit_price": 0.025,  # v4 leftover — must be ignored without raising
+        "unit": "image",
+        "currency": "USD",
     }
     restored = ModelEntry.from_dict(legacy)
-    assert restored.unit_price is None
-    assert restored.unit is None
-    assert restored.currency is None
+    assert restored.id == "fal-ai/flux/dev"
+    assert restored.display_name == "FLUX.1 [dev]"
+    assert not hasattr(restored, "unit_price"), \
+        "ModelEntry must not have pricing fields anymore"
 
 
-def test_from_dict_carries_widgets_alongside_pricing():
-    entry = _entry(
-        widgets=[WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True)],
-        unit_price=0.05,
-        unit="image",
-        currency="USD",
-    )
-    restored = ModelEntry.from_dict(entry.to_dict())
-    assert len(restored.widgets) == 1
-    assert restored.widgets[0].name == "prompt"
-    assert restored.unit_price == 0.05
+def test_to_dict_excludes_pricing_fields():
+    entry = _entry()
+    d = entry.to_dict()
+    assert "unit_price" not in d
+    assert "unit" not in d
+    assert "currency" not in d

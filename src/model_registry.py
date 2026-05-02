@@ -40,12 +40,13 @@ _FALLBACK_PATH = _PKG_DIR / "fallback_catalog.json"
 _CACHE_PATH = _PKG_DIR.parent / "cache" / "catalog.json"
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-SCHEMA_VERSION = 4  # bump when WidgetSpec format changes OR new fal categories are
+SCHEMA_VERSION = 5  # bump when WidgetSpec format changes OR new fal categories are
                     # added to the fetched set, so existing caches are invalidated
                     # and refetched with the new category coverage. Last bumps:
                     #   1 → 2: added text-to-image + image-to-image categories
                     #   2 → 3: added llm + vision categories (v0.3.0)
                     #   3 → 4: added pricing fields (unit_price/unit/currency)
+                    #   4 → 5: extracted pricing into separate cache/pricing.json
 
 _lock = threading.Lock()
 _models: list[ModelEntry] | None = None
@@ -151,10 +152,7 @@ def _shape_from_category(category: str) -> str:
     return _CATEGORY_CONFIG.get(category, {}).get("shape", "text_only")
 
 
-def _entry_from_raw(
-    raw: dict[str, Any],
-    pricing: dict[str, dict[str, Any]] | None = None,
-) -> ModelEntry | None:
+def _entry_from_raw(raw: dict[str, Any]) -> ModelEntry | None:
     endpoint_id = raw.get("endpoint_id")
     if not endpoint_id:
         return None
@@ -188,7 +186,6 @@ def _entry_from_raw(
 
     widgets = apply_widget_overrides(str(endpoint_id), widgets)
 
-    price_info = (pricing or {}).get(str(endpoint_id)) or {}
     return ModelEntry(
         id=str(endpoint_id),
         display_name=str(display),
@@ -196,9 +193,6 @@ def _entry_from_raw(
         shape=shape,
         description=str(description),
         widgets=widgets,
-        unit_price=price_info.get("unit_price"),
-        unit=price_info.get("unit"),
-        currency=price_info.get("currency"),
     )
 
 
@@ -209,25 +203,10 @@ def _live_fetch() -> list[ModelEntry] | None:
         _log.warning("live catalog fetch failed: %s", exc)
         return None
 
-    # Pull pricing for every active endpoint in one batched pass. Failures
-    # (missing FAL_KEY, rate-limit-after-retries) degrade gracefully — the
-    # cost-label widget falls back to "Pricing unavailable".
-    all_endpoint_ids = [
-        str(raw.get("endpoint_id"))
-        for raws in per_category.values()
-        for raw in raws
-        if raw.get("endpoint_id")
-    ]
-    try:
-        pricing = catalog_client.fetch_all_pricing(all_endpoint_ids)
-    except Exception as exc:  # noqa: BLE001 — pricing is best-effort
-        _log.warning("pricing fetch failed: %s — proceeding without pricing", exc)
-        pricing = {}
-
     out: list[ModelEntry] = []
     for category, raw_list in per_category.items():
         for raw in raw_list:
-            entry = _entry_from_raw(raw, pricing=pricing)
+            entry = _entry_from_raw(raw)
             if entry is not None:
                 out.append(entry)
     if not out:

@@ -332,13 +332,16 @@ def _fetch_pricing_for_batch(
     batch: list[str],
     timeout_s: float,
     out: dict[str, dict[str, Any]],
+    no_pricing: set[str],
     counters: dict[str, int],
 ) -> None:
     """Fetch pricing for one batch, walking pagination and bisecting on 404.
 
     fal's pricing endpoint returns 404 for the WHOLE batch if any single
     endpoint_id is unknown to the pricing index — so we recursively halve
-    until we identify and skip the unknown id.
+    until we identify and skip the unknown id. Single-id batches that 404
+    add the id to `no_pricing` so subsequent sweeps can skip it via the
+    persisted skip-list.
     """
     cursor: str | None = None
     for _page_idx in range(MAX_PAGES):
@@ -352,11 +355,15 @@ def _fetch_pricing_for_batch(
                 # is recoverable. Recurse into both halves so we keep at most a single
                 # unknown-id loss per batch instead of all 50.
                 mid = len(batch) // 2
-                _fetch_pricing_for_batch(batch[:mid], timeout_s, out, counters)
-                _fetch_pricing_for_batch(batch[mid:], timeout_s, out, counters)
+                _fetch_pricing_for_batch(batch[:mid], timeout_s, out, no_pricing, counters)
+                _fetch_pricing_for_batch(batch[mid:], timeout_s, out, no_pricing, counters)
                 return
             if outcome.status == 404:
+                # Single-id batch confirmed as unknown to the pricing index.
+                # Persist it so subsequent sweeps skip the id.
                 counters["unknown_ids"] += 1
+                if len(batch) == 1:
+                    no_pricing.add(batch[0])
             else:
                 counters["other_failures"] += 1
             return
@@ -371,26 +378,44 @@ def _fetch_pricing_for_batch(
 def fetch_all_pricing(
     endpoint_ids: list[str],
     timeout_s: float = DEFAULT_TIMEOUT_S,
-) -> dict[str, dict[str, Any]]:
+    skip_ids: set[str] | None = None,
+) -> tuple[dict[str, dict[str, Any]], set[str]]:
     """Batch-fetch pricing for every endpoint_id in `endpoint_ids`.
 
     Walks the pricing API in batches of `PRICING_BATCH_SIZE`, sleeping briefly
     between batches to ease rate-limit pressure. On 404 (whole-batch failure
     fal returns when any id is unknown) we bisect to recover the recoverable
-    half. Returns `{endpoint_id: {"unit_price", "unit", "currency"}}`;
-    absent endpoints have unknown pricing, surfaced as "Pricing unavailable"
-    in the UI.
+    half. Single-id 404s are recorded in the returned `newly_no_pricing` set
+    so callers can persist them and skip the id on future sweeps.
+
+    Args:
+      endpoint_ids: every catalog id to look up.
+      skip_ids: optional set of ids to exclude before batching. Pass the
+        previously-persisted no-pricing set to cut request count on
+        subsequent sweeps.
+      timeout_s: per-request timeout.
+
+    Returns:
+      `(prices, newly_no_pricing)` where prices maps endpoint_id →
+      `{unit_price, unit, currency}`, and newly_no_pricing is the set of
+      single-id 404 endpoints discovered during this sweep.
     """
     out: dict[str, dict[str, Any]] = {}
+    newly_no_pricing: set[str] = set()
     if not endpoint_ids:
-        return out
-    deduped: list[str] = list(dict.fromkeys(endpoint_ids))
+        return out, newly_no_pricing
+    skip = skip_ids or set()
+    deduped: list[str] = [
+        x for x in dict.fromkeys(endpoint_ids) if x not in skip
+    ]
+    if not deduped:
+        return out, newly_no_pricing
     counters = {"unknown_ids": 0, "other_failures": 0, "terminal": 0}
     for start in range(0, len(deduped), PRICING_BATCH_SIZE):
         if start > 0 and PRICING_INTER_BATCH_SLEEP_S > 0:
             time.sleep(PRICING_INTER_BATCH_SLEEP_S)
         batch = deduped[start : start + PRICING_BATCH_SIZE]
-        _fetch_pricing_for_batch(batch, timeout_s, out, counters)
+        _fetch_pricing_for_batch(batch, timeout_s, out, newly_no_pricing, counters)
         if counters["terminal"]:
             _log.warning(
                 "pricing endpoint refused (auth/forbidden) — skipping remaining batches"
@@ -398,10 +423,11 @@ def fetch_all_pricing(
             break
     log_fn = _log.warning if (counters["unknown_ids"] or counters["other_failures"]) else _log.info
     log_fn(
-        "fetched pricing for %d / %d endpoints (unknown_ids=%d, other_failures=%d)",
+        "fetched pricing for %d / %d endpoints (unknown_ids=%d, other_failures=%d, skipped=%d)",
         len(out),
         len(deduped),
         counters["unknown_ids"],
         counters["other_failures"],
+        len(skip),
     )
-    return out
+    return out, newly_no_pricing
