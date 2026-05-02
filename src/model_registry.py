@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from . import catalog_client
+from .endpoint_overrides import apply_widget_overrides
 from .schema_resolver import SchemaError, parse_openapi
 from .widget_spec import ModelEntry, WidgetSpec
 
@@ -73,7 +74,13 @@ def _load_cache_if_fresh() -> list[ModelEntry] | None:
                 SCHEMA_VERSION,
             )
             return None
-        models = [ModelEntry.from_dict(m) for m in data.get("models", [])]
+        # Re-apply widget overrides on every cache load so future changes to
+        # the override registry take effect without forcing a cache refetch.
+        models = []
+        for raw in data.get("models", []):
+            entry = ModelEntry.from_dict(raw)
+            entry.widgets = apply_widget_overrides(entry.id, entry.widgets)
+            models.append(entry)
         _log.info("loaded %d models from cache (age %.1f hours)", len(models), age / 3600)
         return models
     except (OSError, json.JSONDecodeError) as exc:
@@ -179,6 +186,8 @@ def _entry_from_raw(
         widgets = _synthesize_widgets(category)
         shape = _shape_from_category(category)
 
+    widgets = apply_widget_overrides(str(endpoint_id), widgets)
+
     price_info = (pricing or {}).get(str(endpoint_id)) or {}
     return ModelEntry(
         id=str(endpoint_id),
@@ -281,23 +290,33 @@ def get(model_id: str) -> ModelEntry | None:
 import re as _re
 
 # Per-category endpoint-id exclude patterns. fal's `llm` category is a grab-bag
-# that includes embeddings + moderation + chat models under one label. We drop
-# the not-actually-text-generation endpoints here so they don't pollute T2T.
-# Adding a new exclusion = one entry.
-_CATEGORY_EXCLUDE_PATTERNS: dict[str, "_re.Pattern[str]"] = {
-    "llm": _re.compile(r"/embeddings?$", _re.IGNORECASE),
+# that includes embeddings + moderation + tool endpoints alongside chat models.
+# Each value is a LIST of regex patterns — a model is excluded if ANY matches.
+# Adding a new exclusion = one entry in the right list.
+_CATEGORY_EXCLUDE_PATTERNS: dict[str, list["_re.Pattern[str]"]] = {
+    "llm": [
+        # Embedding endpoints aren't chat — keep T2T focused on generation.
+        _re.compile(r"/embeddings?$", _re.IGNORECASE),
+        # OpenRouter's bare router endpoint (no `/openai/v1/...` path) is a
+        # parent that doesn't expose a usable inference contract on its own.
+        _re.compile(r"^openrouter/router$"),
+        # Moderation / guard models classify content; not chat-model-shaped.
+        _re.compile(r"-guard\b", _re.IGNORECASE),
+        # Single-purpose tools, not general-purpose chat.
+        _re.compile(r"video-prompt-generator", _re.IGNORECASE),
+    ],
 }
 
 
 def filter_models(category: str, shapes: tuple[str, ...] | None = None) -> list[ModelEntry]:
-    exclude = _CATEGORY_EXCLUDE_PATTERNS.get(category)
+    excludes = _CATEGORY_EXCLUDE_PATTERNS.get(category, [])
     out = []
     for m in _load():
         if m.category != category:
             continue
         if shapes is not None and m.shape not in shapes:
             continue
-        if exclude and exclude.search(m.id):
+        if any(p.search(m.id) for p in excludes):
             continue
         out.append(m)
     return out

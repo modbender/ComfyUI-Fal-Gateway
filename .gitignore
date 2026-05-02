@@ -12,5 +12,7 @@ build/
 .coverage
 htmlcov/
 config.ini
+.env
+.env.local
 cache/*
 !cache/.gitkeep

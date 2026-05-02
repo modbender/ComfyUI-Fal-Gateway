@@ -18,6 +18,7 @@ import logging
 from typing import Any, ClassVar
 
 from .. import model_registry
+from ..endpoint_overrides import apply_payload_transformer
 from ..fal_config import default_config
 from ..fal_runner import run_async
 from ..fal_uploads import upload_tensor_image
@@ -197,4 +198,6 @@ class _FalGatewayNodeBase:
                 continue
             payload[w.fal_key] = _coerce(value, w.kind)
 
-        return payload
+        # 4. Endpoint-specific payload reshape (e.g. OpenAI chat-completions
+        #    expects {messages: [{role, content}]} not flat {prompt}).
+        return apply_payload_transformer(entry.id, payload)

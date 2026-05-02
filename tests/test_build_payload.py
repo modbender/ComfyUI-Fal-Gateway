@@ -203,3 +203,61 @@ async def test_build_payload_handles_full_seedance_2_style_kwarg_set(node):
     assert payload["resolution"] == "720p"  # default carried
     assert payload["seed"] == 0  # default carried
     assert payload["generate_audio"] is True  # default carried
+
+
+# ---- endpoint-specific payload transformer -------------------------------
+
+
+def _openrouter_chat_entry() -> ModelEntry:
+    """ModelEntry shaped like what _entry_from_raw would produce for openrouter
+    chat-completions after widget overrides are applied."""
+    return ModelEntry(
+        id="openrouter/router/openai/v1/chat/completions",
+        display_name="OpenRouter Chat Completions",
+        category="llm",
+        shape="text_only",
+        widgets=[
+            WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True,
+                       payload_key="prompt"),
+            WidgetSpec(name="model", kind="COMBO", default="openai/gpt-4o",
+                       options=["openai/gpt-4o", "anthropic/claude-sonnet-4.5"],
+                       payload_key="model"),
+            WidgetSpec(name="system_prompt", kind="STRING", default="", multiline=True,
+                       payload_key="system_prompt"),
+        ],
+    )
+
+
+async def test_build_payload_openrouter_chat_reshapes_to_messages(node):
+    entry = _openrouter_chat_entry()
+    payload = await node._build_payload(
+        entry,
+        "Hello there.",
+        {"model": "anthropic/claude-sonnet-4.5", "system_prompt": "Be terse."},
+    )
+    assert "prompt" not in payload
+    assert "system_prompt" not in payload
+    assert payload["model"] == "anthropic/claude-sonnet-4.5"
+    assert payload["messages"] == [
+        {"role": "system", "content": "Be terse."},
+        {"role": "user", "content": "Hello there."},
+    ]
+
+
+async def test_build_payload_openrouter_chat_no_system_prompt(node):
+    """Empty system_prompt → only the user message survives in messages."""
+    entry = _openrouter_chat_entry()
+    payload = await node._build_payload(
+        entry,
+        "What time is it?",
+        {"model": "openai/gpt-4o"},  # system_prompt absent → uses default ""
+    )
+    assert payload["messages"] == [{"role": "user", "content": "What time is it?"}]
+
+
+async def test_build_payload_no_transform_for_other_endpoints(node):
+    """Non-openrouter endpoints must NOT get the messages-shape transform applied."""
+    entry = _t2v_entry([])
+    payload = await node._build_payload(entry, "test prompt", {})
+    assert payload == {"prompt": "test prompt"}
+    assert "messages" not in payload
