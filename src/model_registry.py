@@ -27,7 +27,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from . import catalog_client
+from .api_models import CatalogCacheFile
 from .endpoint_overrides import apply_widget_overrides
 from .schema_resolver import SchemaError, parse_openapi
 from .widget_spec import ModelEntry, WidgetSpec
@@ -66,40 +69,40 @@ def _load_cache_if_fresh() -> list[ModelEntry] | None:
         if age > CACHE_TTL_SECONDS:
             _log.info("cached catalog is stale (%.1f days old); refetching", age / 86400)
             return None
-        with open(_CACHE_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        if data.get("schema_version") != SCHEMA_VERSION:
-            _log.info(
-                "cache schema_version %s != %s; refetching",
-                data.get("schema_version"),
-                SCHEMA_VERSION,
-            )
-            return None
-        # Re-apply widget overrides on every cache load so future changes to
-        # the override registry take effect without forcing a cache refetch.
-        models = []
-        for raw in data.get("models", []):
-            entry = ModelEntry.from_dict(raw)
-            entry.widgets = apply_widget_overrides(entry.id, entry.widgets)
-            models.append(entry)
-        _log.info("loaded %d models from cache (age %.1f hours)", len(models), age / 3600)
-        return models
-    except (OSError, json.JSONDecodeError) as exc:
+        cache = CatalogCacheFile.model_validate_json(
+            _CACHE_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, ValidationError, ValueError) as exc:
         _log.warning("cache read failed: %s", exc)
         return None
+    if cache.schema_version != SCHEMA_VERSION:
+        _log.info(
+            "cache schema_version %s != %s; refetching",
+            cache.schema_version,
+            SCHEMA_VERSION,
+        )
+        return None
+    # Re-apply widget overrides on every cache load so future changes to
+    # the override registry take effect without forcing a cache refetch.
+    models = []
+    for raw in cache.models:
+        entry = ModelEntry.from_dict(raw)
+        entry.widgets = apply_widget_overrides(entry.id, entry.widgets)
+        models.append(entry)
+    _log.info("loaded %d models from cache (age %.1f hours)", len(models), age / 3600)
+    return models
 
 
 def _write_cache(models: list[ModelEntry]) -> None:
     try:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cache = CatalogCacheFile(
+            schema_version=SCHEMA_VERSION,
+            fetched_at=datetime.now(timezone.utc).isoformat(),
+            models=[m.to_dict() for m in models],
+        )
         tmp = _CACHE_PATH.with_suffix(".tmp")
-        payload = {
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
-            "schema_version": SCHEMA_VERSION,
-            "models": [m.to_dict() for m in models],
-        }
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        tmp.write_text(cache.model_dump_json(indent=2), encoding="utf-8")
         tmp.replace(_CACHE_PATH)
         _log.info("wrote %d models to %s", len(models), _CACHE_PATH)
     except OSError as exc:

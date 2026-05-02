@@ -19,12 +19,30 @@ import logging
 import os
 
 from aiohttp import web
+from pydantic import BaseModel
 
 from . import model_registry, pricing_cache
+from .api_models import (
+    ErrorResponse,
+    HealthResponse,
+    PricingRefreshResponse,
+    RefreshResponse,
+    SchemaResponse,
+)
 
 
 _log = logging.getLogger("fal_gateway.routes")
 _PLACEHOLDER_KEY = "<your_fal_api_key_here>"
+
+
+def _ok(payload: BaseModel, status: int = 200) -> web.Response:
+    """Serialize a Pydantic response model into an aiohttp JSON response."""
+    return web.json_response(payload.model_dump(), status=status)
+
+
+def _err(message: str, status: int = 400) -> web.Response:
+    """Standard error envelope: `{ok: false, error: <message>}`."""
+    return web.json_response(ErrorResponse(error=message).model_dump(), status=status)
 
 
 def decode_model_id_b64(b64: str) -> str:
@@ -54,10 +72,7 @@ def register_routes(routes: web.RouteTableDef) -> None:
                 deleted = True
             except OSError as exc:
                 _log.warning("could not delete cache file %s: %s", cache_path, exc)
-                return web.json_response(
-                    {"ok": False, "error": f"could not delete cache: {exc}"},
-                    status=500,
-                )
+                return _err(f"could not delete cache: {exc}", status=500)
 
         model_registry.reload()
 
@@ -74,17 +89,16 @@ def register_routes(routes: web.RouteTableDef) -> None:
 
         loop.run_in_executor(None, _warm_cache)
 
-        return web.json_response(
-            {
-                "ok": True,
-                "deleted": deleted,
-                "message": (
+        return _ok(
+            RefreshResponse(
+                deleted=deleted,
+                message=(
                     "Cache cleared. A fresh fetch has started in the background. "
                     "Restart ComfyUI to see the updated model dropdowns "
                     "(existing placed nodes keep their old dropdown options "
                     "until you re-add them or restart)."
                 ),
-            }
+            )
         )
 
     @routes.get("/fal_gateway/schema/{model_id_b64}")
@@ -99,21 +113,15 @@ def register_routes(routes: web.RouteTableDef) -> None:
         try:
             model_id = decode_model_id_b64(b64)
         except ValueError:
-            return web.json_response(
-                {"ok": False, "error": "invalid base64 model_id"}, status=400
-            )
+            return _err("invalid base64 model_id")
 
         # `model_id` is a display string from the dropdown ("[provider] Name — id").
         try:
             entry = model_registry.resolve(model_id)
         except ValueError as exc:
-            return web.json_response(
-                {"ok": False, "error": f"malformed model_id: {exc}"}, status=400
-            )
+            return _err(f"malformed model_id: {exc}")
         if entry is None:
-            return web.json_response(
-                {"ok": False, "error": f"unknown model_id: {model_id}"}, status=404
-            )
+            return _err(f"unknown model_id: {model_id}", status=404)
 
         # Trigger a background pricing refresh on first stale-cache schema
         # lookup. Subsequent requests during the in-flight refresh are no-ops.
@@ -123,16 +131,15 @@ def register_routes(routes: web.RouteTableDef) -> None:
         except Exception as exc:  # noqa: BLE001 — best-effort
             _log.debug("pricing refresh trigger failed: %s", exc)
 
-        return web.json_response(
-            {
-                "ok": True,
-                "model_id": entry.id,
-                "display_name": entry.display_name,
-                "category": entry.category,
-                "shape": entry.shape,
-                "widgets": [w.to_dict() for w in entry.widgets],
+        return _ok(
+            SchemaResponse(
+                model_id=entry.id,
+                display_name=entry.display_name,
+                category=entry.category,
+                shape=entry.shape,
+                widgets=[w.to_dict() for w in entry.widgets],
                 **pricing_cache.get_for_response(entry.id),
-            }
+            )
         )
 
     @routes.get("/fal_gateway/health")
@@ -143,9 +150,7 @@ def register_routes(routes: web.RouteTableDef) -> None:
             count = len(model_registry.all_models())
         except Exception:  # noqa: BLE001
             count = -1
-        return web.json_response(
-            {"fal_key_present": key_set, "model_count": count}
-        )
+        return _ok(HealthResponse(fal_key_present=key_set, model_count=count))
 
     @routes.post("/fal_gateway/pricing_refresh")
     async def refresh_pricing(request: web.Request) -> web.Response:
@@ -157,17 +162,13 @@ def register_routes(routes: web.RouteTableDef) -> None:
             all_ids = [m.id for m in model_registry.all_models()]
             started = pricing_cache.trigger_refresh_if_stale(all_ids)
         except Exception as exc:  # noqa: BLE001
-            return web.json_response(
-                {"ok": False, "error": f"refresh trigger failed: {exc}"},
-                status=500,
-            )
-        return web.json_response(
-            {
-                "ok": True,
-                "started": started,
-                "message": (
+            return _err(f"refresh trigger failed: {exc}", status=500)
+        return _ok(
+            PricingRefreshResponse(
+                started=started,
+                message=(
                     "Pricing cache cleared. A fresh fetch is running in the "
                     "background; cost labels will update when it completes."
                 ),
-            }
+            )
         )

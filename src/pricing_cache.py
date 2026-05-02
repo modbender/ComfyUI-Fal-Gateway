@@ -18,15 +18,16 @@ snapshot variable so the schema route never blocks on a refresh.
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from . import catalog_client
+from .api_models import PricingCacheFile
 
 
 _log = logging.getLogger("fal_gateway.pricing_cache")
@@ -54,30 +55,27 @@ def _load_from_disk() -> None:
         _loaded = True
         return
     try:
-        with open(_CACHE_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
+        cache = PricingCacheFile.model_validate_json(
+            _CACHE_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, ValidationError, ValueError) as exc:
         _log.warning("pricing cache read failed: %s", exc)
         _loaded = True
         return
-    if data.get("schema_version") != SCHEMA_VERSION:
+    if cache.schema_version != SCHEMA_VERSION:
         _log.info(
             "pricing cache schema_version %s != %s; will refetch",
-            data.get("schema_version"),
+            cache.schema_version,
             SCHEMA_VERSION,
         )
         _loaded = True
         return
-    _prices = {
-        k: v for k, v in (data.get("prices") or {}).items() if isinstance(v, dict)
-    }
-    _no_pricing = set(data.get("no_pricing") or [])
-    fetched_raw = data.get("fetched_at")
-    if isinstance(fetched_raw, str):
-        try:
-            _fetched_at = datetime.fromisoformat(fetched_raw)
-        except ValueError:
-            _fetched_at = None
+    _prices = {k: v for k, v in cache.prices.items() if isinstance(v, dict)}
+    _no_pricing = set(cache.no_pricing)
+    try:
+        _fetched_at = datetime.fromisoformat(cache.fetched_at)
+    except ValueError:
+        _fetched_at = None
     _loaded = True
     _log.info(
         "loaded pricing cache: %d prices, %d known no_pricing",
@@ -90,15 +88,14 @@ def _write_to_disk() -> None:
     """Atomic write — temp file + rename. Caller must hold `_lock`."""
     try:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        cache = PricingCacheFile(
+            schema_version=SCHEMA_VERSION,
+            fetched_at=(_fetched_at or datetime.now(timezone.utc)).isoformat(),
+            prices=_prices,
+            no_pricing=sorted(_no_pricing),
+        )
         tmp = _CACHE_PATH.with_suffix(".tmp")
-        payload = {
-            "schema_version": SCHEMA_VERSION,
-            "fetched_at": (_fetched_at or datetime.now(timezone.utc)).isoformat(),
-            "prices": _prices,
-            "no_pricing": sorted(_no_pricing),
-        }
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
+        tmp.write_text(cache.model_dump_json(indent=2), encoding="utf-8")
         tmp.replace(_CACHE_PATH)
         _log.info(
             "wrote pricing cache: %d prices, %d no_pricing",

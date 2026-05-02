@@ -207,44 +207,7 @@ def fetch_active_video_models(
 # --------------------------------------------------------------------------
 
 
-def _extract_prices(page: dict[str, Any]) -> list[dict[str, Any]]:
-    """Tolerantly pull the price-list array from a pricing API response.
-
-    Known/anticipated envelope keys: `prices`, `models`, `data`. Falls back
-    to the page itself if it's already a list (some APIs do that).
-    """
-    if isinstance(page, list):
-        return page
-    for key in ("prices", "models", "data"):
-        items = page.get(key)
-        if isinstance(items, list):
-            return items
-    return []
-
-
-def _normalize_price_entry(item: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """Map one pricing record → (endpoint_id, {unit_price, unit, currency}).
-
-    Returns None when the entry is missing an endpoint_id. Tolerates a few
-    field-name variants (`unit_price` vs `price`, `unit` vs `pricing_unit`).
-    """
-    endpoint_id = item.get("endpoint_id") or item.get("id")
-    if not endpoint_id:
-        return None
-    raw_price = item.get("unit_price")
-    if raw_price is None:
-        raw_price = item.get("price")
-    try:
-        unit_price = float(raw_price) if raw_price is not None else None
-    except (TypeError, ValueError):
-        unit_price = None
-    unit = item.get("unit") or item.get("pricing_unit")
-    currency = item.get("currency") or "USD"
-    return str(endpoint_id), {
-        "unit_price": unit_price,
-        "unit": str(unit) if unit else None,
-        "currency": str(currency) if currency else None,
-    }
+from .api_models import PricingPage
 
 
 def _fetch_pricing_page(
@@ -318,14 +281,21 @@ def _fetch_pricing_page_with_retries(
 
 
 def _absorb_page_into(out: dict[str, dict[str, Any]], page: dict[str, Any]) -> None:
-    for item in _extract_prices(page):
-        if not isinstance(item, dict):
+    """Parse one pricing page into `out`, keyed by endpoint_id.
+
+    Pydantic handles the envelope-key variants (`prices` / `models` / `data`)
+    and the per-entry alias names (`unit_price` / `price`, `unit` /
+    `pricing_unit`). Entries with no endpoint_id are silently skipped.
+    """
+    parsed = PricingPage.model_validate(page if isinstance(page, dict) else {"prices": page})
+    for entry in parsed.prices:
+        if not entry.endpoint_id:
             continue
-        normalized = _normalize_price_entry(item)
-        if normalized is None:
-            continue
-        key, payload = normalized
-        out[key] = payload
+        out[entry.endpoint_id] = {
+            "unit_price": entry.unit_price,
+            "unit": entry.unit,
+            "currency": entry.currency,
+        }
 
 
 def _fetch_pricing_for_batch(

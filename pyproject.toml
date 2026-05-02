@@ -22,6 +22,9 @@ dependencies = [
     "opencv-python>=4.8",
     "Pillow>=10.0",
     "numpy>=1.24",
+    # ComfyUI itself requires pydantic~=2.0; we pin >=2.0,<3 so standalone test
+    # environments without ComfyUI also pull a compatible version.
+    "pydantic>=2.0,<3",
 ]
 
 [project.optional-dependencies]
