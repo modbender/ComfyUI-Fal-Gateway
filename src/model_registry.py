@@ -255,12 +255,26 @@ def get(model_id: str) -> ModelEntry | None:
     return None
 
 
+import re as _re
+
+# Per-category endpoint-id exclude patterns. fal's `llm` category is a grab-bag
+# that includes embeddings + moderation + chat models under one label. We drop
+# the not-actually-text-generation endpoints here so they don't pollute T2T.
+# Adding a new exclusion = one entry.
+_CATEGORY_EXCLUDE_PATTERNS: dict[str, "_re.Pattern[str]"] = {
+    "llm": _re.compile(r"/embeddings?$", _re.IGNORECASE),
+}
+
+
 def filter_models(category: str, shapes: tuple[str, ...] | None = None) -> list[ModelEntry]:
+    exclude = _CATEGORY_EXCLUDE_PATTERNS.get(category)
     out = []
     for m in _load():
         if m.category != category:
             continue
         if shapes is not None and m.shape not in shapes:
+            continue
+        if exclude and exclude.search(m.id):
             continue
         out.append(m)
     return out
