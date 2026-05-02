@@ -39,7 +39,11 @@ _FALLBACK_PATH = _PKG_DIR / "fallback_catalog.json"
 _CACHE_PATH = _PKG_DIR.parent / "cache" / "catalog.json"
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-SCHEMA_VERSION = 2  # bump when WidgetSpec format changes; invalidates older caches
+SCHEMA_VERSION = 3  # bump when WidgetSpec format changes OR new fal categories are
+                    # added to the fetched set, so existing caches are invalidated
+                    # and refetched with the new category coverage. Last bumps:
+                    #   1 → 2: added text-to-image + image-to-image categories
+                    #   2 → 3: added llm + vision categories (v0.3.0)
 
 _lock = threading.Lock()
 _models: list[ModelEntry] | None = None
