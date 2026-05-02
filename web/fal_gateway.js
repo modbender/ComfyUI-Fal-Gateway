@@ -157,16 +157,15 @@ const STATIC_WIDGET_NAMES = new Set(["model_id", "prompt", "image_count"]);
 // ============================================================================
 // Cost estimator (v0.4.0)
 // ============================================================================
-// The schema endpoint returns {unit_price, unit, currency} per model. We render
-// a non-serialized "estimated_cost" label widget on every Fal-Gateway node that
+// The schema endpoint returns {unit_price, unit, currency} per model. We draw
+// a short cost-per-run estimate in the node's TITLE BAR (right-aligned) that
 // updates whenever the user changes the model OR any dynamic widget value.
 //
-// Tokens-priced models honestly show the per-token rate (no fake total — input
-// /output token counts aren't predictable pre-call).
+// Token-priced models (LLM/VLM) honestly show the per-token rate without a
+// fake estimate — input/output token counts aren't predictable pre-call.
 
-const COST_LABEL_WIDGET_NAME = "estimated_cost";
-const COST_LABEL_LOADING = "Estimated cost: …";
-const COST_LABEL_UNAVAILABLE = "Estimated cost: pricing unavailable";
+const COST_LOADING = "…";
+const COST_UNAVAILABLE = "n/a";
 
 // Currency symbol map. Adding a currency = one entry. Falls back to bare code.
 const CURRENCY_SYMBOLS = { USD: "$", EUR: "€", GBP: "£" };
@@ -210,87 +209,86 @@ function pickWidgetValue(widgets, names) {
 
 // Registry: one entry per fal `unit` value. Adding a new unit = one entry.
 // Each formula receives {price, currency, widgets} (widgets keyed by name)
-// and returns the label string to display.
+// and returns the SHORT label string for the title bar.
 const COST_FORMULAS = {
-  image: ({ price, currency }) =>
-    `Estimated cost: ${fmtMoney(price, currency)} per image`,
+  image: ({ price, currency }) => `${fmtMoney(price, currency)}/img`,
 
   second: ({ price, currency, widgets }) => {
     const dur = pickWidgetValue(widgets, ["duration", "duration_seconds", "seconds"]);
     if (dur != null && dur > 0) {
-      const total = price * dur;
-      return `Estimated cost: ${fmtMoney(total, currency)} (${dur}s × ${fmtMoney(price, currency)}/s)`;
+      return `${fmtMoney(price * dur, currency)} (${dur}s)`;
     }
-    return `Estimated cost: ${fmtMoney(price, currency)} per second`;
+    return `${fmtMoney(price, currency)}/s`;
   },
 
   minute: ({ price, currency, widgets }) => {
     const dur = pickWidgetValue(widgets, ["duration", "duration_seconds", "seconds"]);
     if (dur != null && dur > 0) {
-      const total = (price * dur) / 60;
-      return `Estimated cost: ${fmtMoney(total, currency)} (${dur}s ÷ 60 × ${fmtMoney(price, currency)}/min)`;
+      return `${fmtMoney((price * dur) / 60, currency)} (${dur}s)`;
     }
-    return `Estimated cost: ${fmtMoney(price, currency)} per minute`;
+    return `${fmtMoney(price, currency)}/min`;
   },
 
   megapixel: ({ price, currency, widgets }) => {
-    // Try image_size {width,height}, fall back to known w/h widgets.
     const w = pickWidgetValue(widgets, ["width"]);
     const h = pickWidgetValue(widgets, ["height"]);
     if (w && h) {
       const mp = (w * h) / 1_000_000;
-      const total = price * mp;
-      return `Estimated cost: ${fmtMoney(total, currency)} (${mp.toFixed(2)} MP × ${fmtMoney(price, currency)}/MP)`;
+      return `${fmtMoney(price * mp, currency)} (${mp.toFixed(1)}MP)`;
     }
-    return `Estimated cost: ${fmtMoney(price, currency)} per megapixel`;
+    return `${fmtMoney(price, currency)}/MP`;
   },
 
-  "1m_tokens": ({ price, currency }) =>
-    `Estimated cost: ${fmtMoney(price, currency)} per 1M tokens (varies by usage)`,
+  "1m_tokens": ({ price, currency }) => `${fmtMoney(price, currency)}/1M tok`,
 
-  token: ({ price, currency }) =>
-    `Estimated cost: ${fmtMoney(price * 1_000_000, currency)} per 1M tokens (varies by usage)`,
+  token: ({ price, currency }) => `${fmtMoney(price * 1_000_000, currency)}/1M tok`,
 
-  // Fallback for unknown / future unit types — show raw rate.
+  // Fallback for unknown / future unit types.
   __default: ({ price, currency, unit }) =>
-    `Estimated cost: ${fmtMoney(price, currency)} per ${unit || "unit"}`,
+    `${fmtMoney(price, currency)}/${unit || "unit"}`,
 };
 
-function ensureCostLabel(node) {
-  let label = node.widgets?.find((w) => w?._falCostLabel);
-  if (label) return label;
-  // serialize:false keeps it out of saved workflow JSON (it's UI-only).
-  label = node.addWidget("text", COST_LABEL_WIDGET_NAME, COST_LABEL_LOADING, null, {
-    serialize: false,
-  });
-  label._falCostLabel = true;
-  // Make it read-only-feeling: clobber any user edits back to the computed value.
-  const origCallback = label.callback;
-  label.callback = function (value, ...rest) {
-    origCallback?.call(this, value, ...rest);
-    recomputeCost(node);
-  };
-  return label;
-}
-
 function recomputeCost(node) {
-  const label = node.widgets?.find((w) => w?._falCostLabel);
-  if (!label) return;
   const pricing = node._falPricing;
   if (!pricing || pricing.unit_price == null) {
-    label.value = COST_LABEL_UNAVAILABLE;
-    node.setDirtyCanvas(true, false);
-    return;
+    node._falCostText = COST_UNAVAILABLE;
+  } else {
+    const unitKey = normalizeUnit(pricing.unit);
+    const formula = COST_FORMULAS[unitKey] ?? COST_FORMULAS.__default;
+    node._falCostText = formula({
+      price: pricing.unit_price,
+      currency: pricing.currency || "USD",
+      unit: pricing.unit,
+      widgets: node.widgets || [],
+    });
   }
-  const unitKey = normalizeUnit(pricing.unit);
-  const formula = COST_FORMULAS[unitKey] ?? COST_FORMULAS.__default;
-  label.value = formula({
-    price: pricing.unit_price,
-    currency: pricing.currency || "USD",
-    unit: pricing.unit,
-    widgets: node.widgets || [],
-  });
-  node.setDirtyCanvas(true, false);
+  node.setDirtyCanvas(true, true);
+}
+
+// LiteGraph hook: paint the cost text into the title bar, right-aligned.
+// Patched onto the node prototype once per class via beforeRegisterNodeDef.
+function patchCostHeaderDrawing(nodeType) {
+  const origOnDraw = nodeType.prototype.onDrawForeground;
+  nodeType.prototype.onDrawForeground = function (ctx) {
+    const r = origOnDraw?.apply(this, arguments);
+    if (this.flags?.collapsed) return r;
+    const text = this._falCostText ?? COST_LOADING;
+    if (!text) return r;
+    ctx.save();
+    ctx.font = "11px Arial, sans-serif";
+    ctx.fillStyle = "#9ad";
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    // LiteGraph's title bar sits at y in [-NODE_TITLE_HEIGHT, 0] relative to
+    // node body origin. Default NODE_TITLE_HEIGHT is 30; using a safe fallback
+    // when the global isn't reachable.
+    const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 30;
+    const x = this.size[0] - 8;
+    const y = -titleH * 0.5;
+    ctx.fillText(text, x, y);
+    ctx.restore();
+    return r;
+  };
 }
 
 function modelIdToBase64Url(modelId) {
@@ -447,10 +445,12 @@ app.registerExtension({
   async beforeRegisterNodeDef(nodeType, nodeData) {
     if (!FAL_NODE_TYPES.has(nodeData?.name)) return;
 
+    patchCostHeaderDrawing(nodeType);
+
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
-      ensureCostLabel(this);
+      this._falCostText = COST_LOADING;
       const w = attachToModelIdWidget(this);
       if (w?.value && w.value !== "<no models available>") {
         rebuildDynamicWidgets(this, w.value);
@@ -465,7 +465,7 @@ app.registerExtension({
       // rest are dropped before our dynamic widgets exist).
       const savedValues = (info?.widgets_values || this.widgets_values || []).slice();
       const r = onConfigure?.apply(this, [info, ...rest]);
-      ensureCostLabel(this);
+      this._falCostText = COST_LOADING;
       const w = attachToModelIdWidget(this);
       if (w?.value && w.value !== "<no models available>") {
         rebuildDynamicWidgets(this, w.value).then(() => {
@@ -473,14 +473,9 @@ app.registerExtension({
           // dynamic widgets, in order. Best-effort — if the model's schema has
           // shifted between save and load, mismatched values survive on
           // matching indices, others are dropped.
-          //
-          // Cost label is `serialize:false` so it's NOT in savedValues; we must
-          // exclude it from the static count or every dynamic widget gets the
-          // wrong saved value.
           const widgets = this.widgets || [];
           const dynamicWidgets = widgets.filter((ww) => ww?._falDynamic);
-          const costLabelCount = widgets.filter((ww) => ww?._falCostLabel).length;
-          const staticCount = widgets.length - dynamicWidgets.length - costLabelCount;
+          const staticCount = widgets.length - dynamicWidgets.length;
           for (let i = 0; i < dynamicWidgets.length; i++) {
             const idx = staticCount + i;
             if (idx < savedValues.length && savedValues[idx] !== undefined) {
