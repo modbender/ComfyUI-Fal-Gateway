@@ -2,7 +2,7 @@
 and 30-day TTL.
 
 Background refresh is invoked via a real `threading.Thread` in production;
-tests stub `catalog_client.fetch_all_pricing` and run the refresh
+tests stub `fal.pricing.fetch_all_pricing` and run the refresh
 synchronously in-thread to keep tests deterministic.
 """
 
@@ -107,7 +107,7 @@ def test_trigger_refresh_starts_thread_when_stale():
         captured_ids.append(list(endpoint_ids))
         return ({"fal-ai/x": {"unit_price": 0.1, "unit": "image", "currency": "USD"}}, set())
 
-    with patch.object(pricing_cache.catalog_client, "fetch_all_pricing", fake_fetch):
+    with patch.object(pricing_cache.fal_pricing, "fetch_all_pricing", fake_fetch):
         started = pricing_cache.trigger_refresh_if_stale(["fal-ai/x", "fal-ai/y"])
         assert started is True
         # Wait for the daemon thread to finish.
@@ -133,7 +133,7 @@ def test_trigger_refresh_noop_when_already_in_progress():
         barrier.wait(timeout=2.0)  # block until the test releases us
         return ({}, set())
 
-    with patch.object(pricing_cache.catalog_client, "fetch_all_pricing", slow_fetch):
+    with patch.object(pricing_cache.fal_pricing, "fetch_all_pricing", slow_fetch):
         first = pricing_cache.trigger_refresh_if_stale(["fal-ai/x"])
         second = pricing_cache.trigger_refresh_if_stale(["fal-ai/x"])
         barrier.set()
@@ -151,7 +151,7 @@ def test_refresh_persists_no_pricing_set():
     def fake_fetch(endpoint_ids, timeout_s=20.0, skip_ids=None):
         return ({}, {"fal-ai/unknown-1", "fal-ai/unknown-2"})
 
-    with patch.object(pricing_cache.catalog_client, "fetch_all_pricing", fake_fetch):
+    with patch.object(pricing_cache.fal_pricing, "fetch_all_pricing", fake_fetch):
         pricing_cache.trigger_refresh_if_stale(["fal-ai/unknown-1", "fal-ai/unknown-2"])
         for t in [t for t in __import__("threading").enumerate() if t.name == "fal-gateway-pricing-refresh"]:
             t.join(timeout=2.0)
@@ -178,7 +178,7 @@ def test_subsequent_refresh_passes_no_pricing_as_skip_ids(tmp_path):
         fetched_at=(datetime.now(timezone.utc) - timedelta(days=31)).isoformat(),
     )
 
-    with patch.object(pricing_cache.catalog_client, "fetch_all_pricing", fake_fetch):
+    with patch.object(pricing_cache.fal_pricing, "fetch_all_pricing", fake_fetch):
         pricing_cache.trigger_refresh_if_stale(["fal-ai/flux/dev", "fal-ai/some/internal-tool"])
         for t in [t for t in __import__("threading").enumerate() if t.name == "fal-gateway-pricing-refresh"]:
             t.join(timeout=2.0)

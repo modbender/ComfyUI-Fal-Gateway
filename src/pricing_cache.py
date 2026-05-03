@@ -26,8 +26,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import catalog_client
 from .api_models import PricingCacheFile
+from .fal import pricing as fal_pricing
 
 
 _log = logging.getLogger("fal_gateway.pricing_cache")
@@ -197,7 +197,7 @@ def _refresh_async(endpoint_ids: list[str]) -> None:
     succeeded = False
     try:
         skip = set(_no_pricing)  # snapshot — may be empty on first sweep
-        prices, newly_no_pricing = catalog_client.fetch_all_pricing(
+        prices, newly_no_pricing = fal_pricing.fetch_all_pricing(
             endpoint_ids, skip_ids=skip
         )
         with _lock:

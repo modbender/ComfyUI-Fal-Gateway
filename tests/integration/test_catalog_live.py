@@ -23,7 +23,8 @@ from urllib.error import URLError
 
 import pytest
 
-from src import catalog_client, model_registry
+from src import model_registry
+from src.fal import catalog as fal_catalog
 from src.schema_resolver import parse_openapi
 
 
@@ -44,11 +45,11 @@ def _require_network():
         pytest.skip("api.fal.ai unreachable; skipping live integration suite")
 
 
-# ---- catalog_client ----------------------------------------------------
+# ---- fal.catalog -------------------------------------------------------
 
 
 def test_catalog_endpoint_returns_expected_envelope():
-    page = catalog_client._fetch_page(
+    page = fal_catalog._fetch_page(
         category="text-to-video", cursor=None, limit=5, timeout_s=15.0
     )
     assert isinstance(page, dict)
@@ -59,12 +60,12 @@ def test_catalog_endpoint_returns_expected_envelope():
 
 def test_catalog_pagination_walks_to_second_page():
     """Fetch 2 pages of 5 to confirm cursor handling works end-to-end."""
-    first = catalog_client._fetch_page(
+    first = fal_catalog._fetch_page(
         category="image-to-video", cursor=None, limit=5, timeout_s=15.0
     )
     if not first.get("has_more") or not first.get("next_cursor"):
         pytest.skip("catalog has fewer than 2 pages of image-to-video; cannot test cursor")
-    second = catalog_client._fetch_page(
+    second = fal_catalog._fetch_page(
         category="image-to-video",
         cursor=first["next_cursor"],
         limit=5,
@@ -77,7 +78,7 @@ def test_catalog_pagination_walks_to_second_page():
 
 
 def test_each_model_has_required_metadata_keys():
-    page = catalog_client._fetch_page(
+    page = fal_catalog._fetch_page(
         category="text-to-video", cursor=None, limit=5, timeout_s=15.0
     )
     for m in page["models"]:
@@ -91,10 +92,10 @@ def test_each_model_has_required_metadata_keys():
 
 
 def test_expand_openapi_returns_openapi_field():
-    page = catalog_client._fetch_page(
+    page = fal_catalog._fetch_page(
         category="image-to-video",
         cursor=None,
-        limit=catalog_client.SCHEMA_PAGE_LIMIT,
+        limit=fal_catalog.SCHEMA_PAGE_LIMIT,
         timeout_s=20.0,
         with_schemas=True,
     )
@@ -110,10 +111,10 @@ def test_expand_openapi_returns_openapi_field():
 
 def test_live_openapi_parses_into_widgets():
     """Pull one live model with schema and feed it through schema_resolver."""
-    page = catalog_client._fetch_page(
+    page = fal_catalog._fetch_page(
         category="image-to-video",
         cursor=None,
-        limit=catalog_client.SCHEMA_PAGE_LIMIT,
+        limit=fal_catalog.SCHEMA_PAGE_LIMIT,
         timeout_s=20.0,
         with_schemas=True,
     )
@@ -157,7 +158,7 @@ def test_well_known_model_family_is_reachable(needle):
     rate-limits us — the goal is "is the family still on fal", not "load test
     the catalog endpoint."
     """
-    page = catalog_client._fetch_page_with_retries(
+    page = fal_catalog._fetch_page_with_retries(
         category=None,
         cursor=None,
         limit=10,
@@ -175,7 +176,7 @@ def test_well_known_model_family_is_reachable(needle):
     # Try one more page (cursor) to cover families that don't sort to the top.
     if not page.get("has_more"):
         pytest.skip(f"only one page available, no {needle} match — possibly rate-limited or removed")
-    page2 = catalog_client._fetch_page_with_retries(
+    page2 = fal_catalog._fetch_page_with_retries(
         category=None,
         cursor=page.get("next_cursor"),
         limit=10,

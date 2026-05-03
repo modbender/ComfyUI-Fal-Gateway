@@ -2,7 +2,7 @@
 
 Lookup order on first access:
   1. `cache/catalog.json` if present and < CACHE_TTL_DAYS old (fast warm path).
-  2. Live fetch via `catalog_client.fetch_active_video_models()` (blocks once, then
+  2. Live fetch via `fal.catalog.fetch_active_video_models()` (blocks once, then
      written to cache for subsequent restarts).
   3. `src/fallback_catalog.json` (bundled, offline-bootable last resort).
 
@@ -29,7 +29,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import catalog_client
+from .fal import catalog as fal_catalog
 from .api_models import CatalogCacheFile
 from .endpoint_overrides import apply_widget_overrides
 from .schema_resolver import SchemaError, parse_openapi
@@ -201,7 +201,7 @@ def _entry_from_raw(raw: dict[str, Any]) -> ModelEntry | None:
 
 def _live_fetch() -> list[ModelEntry] | None:
     try:
-        per_category = catalog_client.fetch_active_video_models()
+        per_category = fal_catalog.fetch_active_video_models()
     except Exception as exc:  # noqa: BLE001 — fall through to fallback
         _log.warning("live catalog fetch failed: %s", exc)
         return None
