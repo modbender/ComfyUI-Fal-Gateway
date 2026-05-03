@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from src.output_decoder import (
+from src.fal.output_decoder import (
     _decode_image_bytes_to_tensor,
     _image_url_from_result,
     extract_artifact_url,

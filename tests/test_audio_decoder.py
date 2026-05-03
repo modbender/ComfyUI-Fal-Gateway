@@ -13,7 +13,7 @@ import wave
 
 import torch
 
-from src.fal_downloads import _decode_wav_bytes
+from src.fal.downloads import _decode_wav_bytes
 
 
 def _build_wav_bytes(

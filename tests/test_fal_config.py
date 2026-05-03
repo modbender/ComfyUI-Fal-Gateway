@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from src.fal_config import FalConfig
+from src.fal.config import FalConfig
 
 
 PLACEHOLDER = "<your_fal_api_key_here>"

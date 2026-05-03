@@ -4,7 +4,7 @@ Two responsibilities:
   1. Locate the artifact URL inside fal's varied response shapes.
   2. Decode the artifact (image or video) into a ComfyUI tensor.
 
-Video decoding lives in fal_downloads.py (cv2-based); image decoding lives here
+Video decoding lives in downloads.py (cv2-based); image decoding lives here
 (PIL-based). The dispatcher `decode_artifact(url, kind)` routes to the right one.
 """
 
@@ -166,7 +166,7 @@ async def decode_artifact(url: str, kind: str):
     `extract_artifact_url`); we return it unchanged.
     """
     if kind == "video":
-        from .fal_downloads import fetch_video_as_frames
+        from .downloads import fetch_video_as_frames
 
         return await fetch_video_as_frames(url)
     if kind == "image":

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.output_decoder import (
+from src.fal.output_decoder import (
     _text_from_result,
     decode_artifact,
     extract_artifact_url,
