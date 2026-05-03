@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src import pricing_cache
+from src.storage import pricing_cache
 
 
 @pytest.fixture(autouse=True)

@@ -1,112 +1,35 @@
-"""Model registry — merges live fal.ai catalog with the bundled fallback.
+"""Model registry — in-memory list of fal.ai models with display + filter helpers.
 
-Lookup order on first access:
-  1. `cache/catalog.json` if present and < CACHE_TTL_DAYS old (fast warm path).
-  2. Live fetch via `fal.catalog.fetch_active_video_models()` (blocks once, then
-     written to cache for subsequent restarts).
-  3. `src/fallback_catalog.json` (bundled, offline-bootable last resort).
+Loading order on first access (delegated to `storage.catalog_cache`):
+  1. `cache/catalog.json` if present, fresh, and schema-current.
+  2. Live fetch via `fal.catalog.fetch_active_video_models()` (blocks once,
+     then persisted to cache for subsequent restarts).
+  3. `src/data/fallback_catalog.json` (bundled, offline-bootable last resort).
 
-Hardcoded entries from the bundled fallback override live entries of the same
-endpoint id — that lets us ship better-than-default widget specs for the
-common-known models (Seedance, Kling, MiniMax) while still surfacing the
-hundreds of models we haven't hand-curated.
-
-For live entries without curated widget specs, we synthesize a minimal spec
-from the model's category (`text-to-video` → `[prompt]`; `image-to-video` →
-`[prompt, image→image_url]`). M2 will replace synthesis with real OpenAPI
-parsing.
+Curated entries from the bundled fallback override live entries of the same
+endpoint id — better-than-default widget specs for common models (Seedance,
+Kling, MiniMax). For live entries without curated specs, `schema_resolver`
+parses each model's OpenAPI 3.0 schema; on parse failure we synthesise a
+minimal spec from the model's category.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
-import time
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
-
-from .fal import catalog as fal_catalog
-from .api_models import CatalogCacheFile
 from .endpoint_overrides import apply_widget_overrides
+from .fal import catalog as fal_catalog
 from .schema_resolver import SchemaError, parse_openapi
+from .storage import catalog_cache
 from .widget_spec import ModelEntry, WidgetSpec
 
 
 _log = logging.getLogger("fal_gateway.registry")
 
-_PKG_DIR = Path(__file__).resolve().parent
-_FALLBACK_PATH = _PKG_DIR / "fallback_catalog.json"
-_CACHE_PATH = _PKG_DIR.parent / "cache" / "catalog.json"
-
-CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-SCHEMA_VERSION = 5  # bump when WidgetSpec format changes OR new fal categories are
-                    # added to the fetched set, so existing caches are invalidated
-                    # and refetched with the new category coverage. Last bumps:
-                    #   1 → 2: added text-to-image + image-to-image categories
-                    #   2 → 3: added llm + vision categories (v0.3.0)
-                    #   3 → 4: added pricing fields (unit_price/unit/currency)
-                    #   4 → 5: extracted pricing into separate cache/pricing.json
-
 _lock = threading.Lock()
 _models: list[ModelEntry] | None = None
-
-
-def _load_fallback() -> list[ModelEntry]:
-    with open(_FALLBACK_PATH, encoding="utf-8") as f:
-        data = json.load(f)
-    return [ModelEntry.from_dict(m) for m in data.get("models", [])]
-
-
-def _load_cache_if_fresh() -> list[ModelEntry] | None:
-    if not _CACHE_PATH.exists():
-        return None
-    try:
-        age = time.time() - _CACHE_PATH.stat().st_mtime
-        if age > CACHE_TTL_SECONDS:
-            _log.info("cached catalog is stale (%.1f days old); refetching", age / 86400)
-            return None
-        cache = CatalogCacheFile.model_validate_json(
-            _CACHE_PATH.read_text(encoding="utf-8")
-        )
-    except (OSError, ValidationError, ValueError) as exc:
-        _log.warning("cache read failed: %s", exc)
-        return None
-    if cache.schema_version != SCHEMA_VERSION:
-        _log.info(
-            "cache schema_version %s != %s; refetching",
-            cache.schema_version,
-            SCHEMA_VERSION,
-        )
-        return None
-    # Re-apply widget overrides on every cache load so future changes to
-    # the override registry take effect without forcing a cache refetch.
-    models = []
-    for raw in cache.models:
-        entry = ModelEntry.from_dict(raw)
-        entry.widgets = apply_widget_overrides(entry.id, entry.widgets)
-        models.append(entry)
-    _log.info("loaded %d models from cache (age %.1f hours)", len(models), age / 3600)
-    return models
-
-
-def _write_cache(models: list[ModelEntry]) -> None:
-    try:
-        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        cache = CatalogCacheFile(
-            schema_version=SCHEMA_VERSION,
-            fetched_at=datetime.now(timezone.utc).isoformat(),
-            models=[m.to_dict() for m in models],
-        )
-        tmp = _CACHE_PATH.with_suffix(".tmp")
-        tmp.write_text(cache.model_dump_json(indent=2), encoding="utf-8")
-        tmp.replace(_CACHE_PATH)
-        _log.info("wrote %d models to %s", len(models), _CACHE_PATH)
-    except OSError as exc:
-        _log.warning("cache write failed: %s", exc)
 
 
 # Single source of truth for category-level fal taxonomy. Adding a new category
@@ -226,16 +149,16 @@ def _merge(curated: list[ModelEntry], live: list[ModelEntry]) -> list[ModelEntry
 
 
 def _do_load() -> list[ModelEntry]:
-    fallback = _load_fallback()
+    fallback = catalog_cache.load_fallback()
 
-    cached = _load_cache_if_fresh()
+    cached = catalog_cache.load_if_fresh()
     if cached is not None:
         return _merge(fallback, cached)
 
     live = _live_fetch()
     if live is not None:
         merged = _merge(fallback, live)
-        _write_cache(merged)
+        catalog_cache.write(merged)
         return merged
 
     _log.info("falling back to bundled %d-model catalog", len(fallback))

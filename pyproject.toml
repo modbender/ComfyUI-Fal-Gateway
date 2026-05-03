@@ -38,6 +38,9 @@ dev = [
 Repository = "https://github.com/modbender/ComfyUI-Fal-Gateway"
 Issues = "https://github.com/modbender/ComfyUI-Fal-Gateway/issues"
 
+[tool.setuptools.package-data]
+"src.data" = ["*.json"]
+
 [tool.comfy]
 PublisherId = ""
 DisplayName = "Fal-Gateway"

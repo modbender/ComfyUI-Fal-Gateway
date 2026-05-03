@@ -18,7 +18,8 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from src import model_registry, pricing_cache
+from src import model_registry
+from src.storage import catalog_cache, pricing_cache
 from src.server_routes import register_routes
 from src.widget_spec import ModelEntry, WidgetSpec
 
@@ -45,7 +46,7 @@ async def client(monkeypatch, fake_entry, tmp_path):
     each other.
     """
     # Isolate caches so tests don't read/write the real cache/ folder.
-    monkeypatch.setattr(model_registry, "_CACHE_PATH", tmp_path / "catalog.json")
+    monkeypatch.setattr(catalog_cache, "CACHE_PATH", tmp_path / "catalog.json")
     monkeypatch.setattr(pricing_cache, "_CACHE_PATH", tmp_path / "pricing.json")
     pricing_cache._reset_for_testing()
 
@@ -153,7 +154,7 @@ async def test_refresh_route_deletes_existing_cache(client, monkeypatch, tmp_pat
     """When a cache file is present, refresh removes it and reports deleted=True."""
     cache_path = tmp_path / "catalog.json"
     cache_path.write_text("{}")
-    monkeypatch.setattr(model_registry, "_CACHE_PATH", cache_path)
+    monkeypatch.setattr(catalog_cache, "CACHE_PATH", cache_path)
     res = await client.post("/fal_gateway/refresh")
     body = await res.json()
     assert body["ok"] is True

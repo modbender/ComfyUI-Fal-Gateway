@@ -21,7 +21,7 @@ import os
 from aiohttp import web
 from pydantic import BaseModel
 
-from . import model_registry, pricing_cache
+from . import model_registry
 from .api_models import (
     ErrorResponse,
     HealthResponse,
@@ -29,6 +29,7 @@ from .api_models import (
     RefreshResponse,
     SchemaResponse,
 )
+from .storage import catalog_cache, pricing_cache
 
 
 _log = logging.getLogger("fal_gateway.routes")
@@ -64,15 +65,11 @@ def decode_model_id_b64(b64: str) -> str:
 def register_routes(routes: web.RouteTableDef) -> None:
     @routes.post("/fal_gateway/refresh")
     async def refresh_catalog(request: web.Request) -> web.Response:
-        cache_path = model_registry._CACHE_PATH  # noqa: SLF001 — internal access by design
-        deleted = False
-        if cache_path.exists():
-            try:
-                cache_path.unlink()
-                deleted = True
-            except OSError as exc:
-                _log.warning("could not delete cache file %s: %s", cache_path, exc)
-                return _err(f"could not delete cache: {exc}", status=500)
+        try:
+            deleted = catalog_cache.clear()
+        except OSError as exc:
+            _log.warning("could not delete catalog cache: %s", exc)
+            return _err(f"could not delete cache: {exc}", status=500)
 
         model_registry.reload()
 

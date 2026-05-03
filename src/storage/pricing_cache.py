@@ -26,8 +26,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .api_models import PricingCacheFile
-from .fal import pricing as fal_pricing
+from ..api_models import PricingCacheFile
+from ..fal import pricing as fal_pricing
 
 
 _log = logging.getLogger("fal_gateway.pricing_cache")
