@@ -96,5 +96,5 @@ def test_entry_from_raw_applies_openrouter_widget_overrides():
     by_name = {w.name: w for w in entry.widgets}
     assert "model" in by_name, "openrouter chat must expose `model` dropdown"
     assert by_name["model"].kind == "COMBO"
-    assert "anthropic/claude-sonnet-4.5" in by_name["model"].options
+    assert "Anthropic — Claude Sonnet 4.5" in by_name["model"].options
     assert "system_prompt" in by_name

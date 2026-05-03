@@ -12,6 +12,7 @@
 
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { ComfyWidgets } from "../../scripts/widgets.js";
 
 // Reference-style nodes that have a dynamic image_count switch.
 const REF_NODES = new Set(["FalGatewayRef2V", "FalGatewayRef2I"]);
@@ -380,9 +381,21 @@ function makeDynamicWidget(node, spec) {
   const meta = spec.meta || {};
 
   if (spec.kind === "STRING") {
-    return node.addWidget("text", name, def ?? "", null, {
-      multiline: !!spec.multiline,
-    });
+    if (spec.multiline) {
+      // ComfyWidgets.STRING with multiline=true renders a proper textarea
+      // (matching Comfy's built-in `prompt` widget). Plain LiteGraph
+      // `addWidget("text", ...)` only gives a single-line input even with
+      // a `multiline: true` option, so we route multiline through Comfy's
+      // widget factory instead.
+      const result = ComfyWidgets.STRING(
+        node,
+        name,
+        ["STRING", { default: def ?? "", multiline: true }],
+        app,
+      );
+      return result?.widget ?? result;
+    }
+    return node.addWidget("text", name, def ?? "", null, {});
   }
   if (spec.kind === "INT") {
     return node.addWidget("number", name, Number(def) || 0, null, {

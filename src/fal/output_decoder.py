@@ -89,8 +89,17 @@ def _text_from_result(result: dict[str, Any]) -> str:
       - {response: "..."}                                — most fal LLMs
       - {output: "..."}                                  — some endpoints
       - {text: "..."}                                    — some endpoints
-      - {choices: [{message: {content: "..."}}, ...]}    — OpenRouter / OpenAI-compatible chat
+      - {choices: [{message: {content: "..."}}, ...]}    — OpenRouter chat-completions
+      - {output: [{content: [{type: "output_text", text: "..."}]}], ...}  — OpenAI Responses API
+      - {output_text: "..."}                             — Responses API convenience field
     """
+    # Responses API exposes a flat `output_text` convenience field on top of
+    # the structured `output` array. Check it first so we don't fall into
+    # the older `{output: "<str>"}` branch with mixed shapes.
+    output_text = result.get("output_text")
+    if isinstance(output_text, str):
+        return output_text
+
     for key in ("response", "output", "text"):
         value = result.get(key)
         if isinstance(value, str):
@@ -105,6 +114,24 @@ def _text_from_result(result: dict[str, Any]) -> str:
                 content = message.get("content")
                 if isinstance(content, str):
                     return content
+
+    # OpenAI Responses API: output is a list of items (assistant messages,
+    # tool calls, etc.). Find the first message-like item with output_text.
+    output = result.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for chunk in content:
+                if not isinstance(chunk, dict):
+                    continue
+                if chunk.get("type") == "output_text":
+                    text = chunk.get("text")
+                    if isinstance(text, str):
+                        return text
 
     raise RuntimeError(
         f"could not find text response in fal result: keys={list(result.keys())}"

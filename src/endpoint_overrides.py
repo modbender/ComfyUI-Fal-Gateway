@@ -25,82 +25,111 @@ from .widget_spec import WidgetSpec
 
 
 # OpenRouter aggregates 100+ chat models behind one fal endpoint via a `model`
-# parameter. Curated list — bump as fal/OpenRouter add models.
-# Provider grouped, alphabetic by family.
-_OPENROUTER_CHAT_MODELS = [
+# parameter. Curated as a `{display name: model id}` dict so the dropdown shows
+# friendly names (e.g. "Anthropic — Claude Sonnet 4.5") while we send the raw
+# OpenRouter model id (`anthropic/claude-sonnet-4.5`) to fal at submit time.
+# Provider grouped, alphabetic by family. Adding a model = one entry.
+_OPENROUTER_CHAT_MODELS: dict[str, str] = {
     # Anthropic
-    "anthropic/claude-opus-4.1",
-    "anthropic/claude-sonnet-4.5",
-    "anthropic/claude-sonnet-4",
-    "anthropic/claude-3.7-sonnet",
-    "anthropic/claude-3.5-sonnet",
-    "anthropic/claude-3.5-haiku",
-    "anthropic/claude-3-opus",
-    "anthropic/claude-3-haiku",
+    "Anthropic — Claude Opus 4.1": "anthropic/claude-opus-4.1",
+    "Anthropic — Claude Sonnet 4.5": "anthropic/claude-sonnet-4.5",
+    "Anthropic — Claude Sonnet 4": "anthropic/claude-sonnet-4",
+    "Anthropic — Claude 3.7 Sonnet": "anthropic/claude-3.7-sonnet",
+    "Anthropic — Claude 3.5 Sonnet": "anthropic/claude-3.5-sonnet",
+    "Anthropic — Claude 3.5 Haiku": "anthropic/claude-3.5-haiku",
+    "Anthropic — Claude 3 Opus": "anthropic/claude-3-opus",
+    "Anthropic — Claude 3 Haiku": "anthropic/claude-3-haiku",
     # Google
-    "google/gemini-2.5-pro",
-    "google/gemini-2.5-flash",
-    "google/gemini-2.0-flash-001",
-    "google/gemini-flash-1.5",
-    "google/gemini-flash-1.5-8b",
+    "Google — Gemini 2.5 Pro": "google/gemini-2.5-pro",
+    "Google — Gemini 2.5 Flash": "google/gemini-2.5-flash",
+    "Google — Gemini 2.0 Flash": "google/gemini-2.0-flash-001",
+    "Google — Gemini Flash 1.5": "google/gemini-flash-1.5",
+    "Google — Gemini Flash 1.5 (8B)": "google/gemini-flash-1.5-8b",
     # OpenAI
-    "openai/gpt-5",
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "openai/o3",
-    "openai/o1",
-    "openai/o1-mini",
+    "OpenAI — GPT-5": "openai/gpt-5",
+    "OpenAI — GPT-4o": "openai/gpt-4o",
+    "OpenAI — GPT-4o mini": "openai/gpt-4o-mini",
+    "OpenAI — o3": "openai/o3",
+    "OpenAI — o1": "openai/o1",
+    "OpenAI — o1 mini": "openai/o1-mini",
     # Meta
-    "meta-llama/llama-3.3-70b-instruct",
-    "meta-llama/llama-3.1-405b-instruct",
-    "meta-llama/llama-3.1-70b-instruct",
-    "meta-llama/llama-3.1-8b-instruct",
+    "Meta — Llama 3.3 70B Instruct": "meta-llama/llama-3.3-70b-instruct",
+    "Meta — Llama 3.1 405B Instruct": "meta-llama/llama-3.1-405b-instruct",
+    "Meta — Llama 3.1 70B Instruct": "meta-llama/llama-3.1-70b-instruct",
+    "Meta — Llama 3.1 8B Instruct": "meta-llama/llama-3.1-8b-instruct",
     # Mistral
-    "mistralai/mistral-large",
-    "mistralai/mistral-small",
-    "mistralai/codestral",
+    "Mistral — Large": "mistralai/mistral-large",
+    "Mistral — Small": "mistralai/mistral-small",
+    "Mistral — Codestral": "mistralai/codestral",
     # DeepSeek
-    "deepseek/deepseek-r1",
-    "deepseek/deepseek-v3",
+    "DeepSeek — R1": "deepseek/deepseek-r1",
+    "DeepSeek — V3": "deepseek/deepseek-v3",
     # xAI
-    "x-ai/grok-3",
-    "x-ai/grok-3-mini",
+    "xAI — Grok 3": "x-ai/grok-3",
+    "xAI — Grok 3 mini": "x-ai/grok-3-mini",
     # Qwen
-    "qwen/qwen-2.5-72b-instruct",
-    "qwen/qwen-2.5-coder-32b-instruct",
-]
+    "Qwen — Qwen 2.5 72B Instruct": "qwen/qwen-2.5-72b-instruct",
+    "Qwen — Qwen 2.5 Coder 32B Instruct": "qwen/qwen-2.5-coder-32b-instruct",
+}
+
+_DEFAULT_OPENROUTER_DISPLAY = "Anthropic — Claude Sonnet 4.5"
 
 
-_OPENROUTER_CHAT_OVERRIDES = [
-    WidgetSpec(
+def _openrouter_model_widget() -> WidgetSpec:
+    """Curated COMBO showing friendly names; widget value is the display name,
+    payload-side mapping happens in the per-endpoint transformer."""
+    return WidgetSpec(
         name="model",
         kind="COMBO",
-        default="anthropic/claude-sonnet-4.5",
-        options=list(_OPENROUTER_CHAT_MODELS),
+        default=_DEFAULT_OPENROUTER_DISPLAY,
+        options=list(_OPENROUTER_CHAT_MODELS.keys()),
         required=True,
         payload_key="model",
-    ),
-    WidgetSpec(
-        name="system_prompt",
+    )
+
+
+def _system_prompt_widget(name: str = "system_prompt") -> WidgetSpec:
+    return WidgetSpec(
+        name=name,
         kind="STRING",
         default="",
         required=False,
         multiline=True,
-        # Mapped away by `_openrouter_chat_transform`; stays a UI-level field only.
-        payload_key="system_prompt",
-    ),
-]
+        payload_key=name,  # mapped away by the transformer; UI-only key
+    )
+
+
+_OPENROUTER_CHAT_OVERRIDES = [_openrouter_model_widget(), _system_prompt_widget()]
+_OPENROUTER_RESPONSES_OVERRIDES = [_openrouter_model_widget(), _system_prompt_widget()]
+
+
+def _resolve_openrouter_model(value: Any) -> str | None:
+    """Map a user-facing display name back to its OpenRouter model id.
+
+    Tolerates legacy raw-id values from saved workflows that pre-date the
+    display-name dropdown (returns the value unchanged if it's already a
+    raw id like `anthropic/claude-sonnet-4.5`).
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    mapped = _OPENROUTER_CHAT_MODELS.get(value)
+    if mapped is not None:
+        return mapped
+    # Backward-compat: if `value` matches a raw id from the dict's values, keep it.
+    if value in _OPENROUTER_CHAT_MODELS.values():
+        return value
+    return value  # unknown — pass through, fal will reject at submit time
 
 
 def _openrouter_chat_transform(payload: dict[str, Any]) -> dict[str, Any]:
-    """Translate `{prompt, model, system_prompt}` → OpenAI chat-completions shape.
-
-    Result: `{model, messages: [{role: system, content: ...}, {role: user, content: ...}]}`.
-    Empty / missing prompts are skipped so we never send empty messages.
+    """Translate `{prompt, model, system_prompt}` → OpenAI chat-completions shape:
+    `{model, messages: [{role: system, content}, {role: user, content}]}`.
+    Empty/missing prompts skipped so we never send empty messages.
     """
     out = dict(payload)
     sys_p = out.pop("system_prompt", None)
     user_p = out.pop("prompt", None)
+    out["model"] = _resolve_openrouter_model(out.get("model")) or out.get("model")
     messages: list[dict[str, str]] = []
     if isinstance(sys_p, str) and sys_p.strip():
         messages.append({"role": "system", "content": sys_p})
@@ -111,12 +140,33 @@ def _openrouter_chat_transform(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _openrouter_responses_transform(payload: dict[str, Any]) -> dict[str, Any]:
+    """Translate `{prompt, model, system_prompt}` → OpenAI Responses API shape:
+    `{model, input: <user>, instructions?: <system>}`.
+
+    Empty/whitespace-only system_prompt drops the instructions field. fal's
+    Responses endpoint rejects payloads that don't follow this contract with
+    `invalid_prompt`; the previous chat-completions transformer was wrong here.
+    """
+    out = dict(payload)
+    sys_p = out.pop("system_prompt", None)
+    user_p = out.pop("prompt", None)
+    out["model"] = _resolve_openrouter_model(out.get("model")) or out.get("model")
+    if isinstance(user_p, str) and user_p.strip():
+        out["input"] = user_p
+    if isinstance(sys_p, str) and sys_p.strip():
+        out["instructions"] = sys_p
+    return out
+
+
 WIDGET_OVERRIDES: dict[str, list[WidgetSpec]] = {
     "openrouter/router/openai/v1/chat/completions": _OPENROUTER_CHAT_OVERRIDES,
+    "openrouter/router/openai/v1/responses": _OPENROUTER_RESPONSES_OVERRIDES,
 }
 
 PAYLOAD_TRANSFORMERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "openrouter/router/openai/v1/chat/completions": _openrouter_chat_transform,
+    "openrouter/router/openai/v1/responses": _openrouter_responses_transform,
 }
 
 

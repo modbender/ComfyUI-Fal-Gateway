@@ -50,6 +50,45 @@ def test_text_from_result_handles_nested_choices_openai_shape():
     assert _text_from_result(result) == "Chat response."
 
 
+def test_text_from_result_handles_responses_api_output_text_field():
+    """OpenAI Responses API exposes a flat `output_text` convenience string."""
+    result = {"output_text": "The capital is Paris."}
+    assert _text_from_result(result) == "The capital is Paris."
+
+
+def test_text_from_result_handles_responses_api_structured_output():
+    """OpenAI Responses API: `output` is a list of message-like items, each
+    containing `content: [{type: 'output_text', text: '...'}, ...]`."""
+    result = {
+        "output": [
+            {
+                "id": "msg_1",
+                "role": "assistant",
+                "content": [
+                    {"type": "output_text", "text": "Structured answer here."}
+                ],
+            }
+        ]
+    }
+    assert _text_from_result(result) == "Structured answer here."
+
+
+def test_text_from_result_responses_skips_non_text_content_chunks():
+    """Tool-call entries shouldn't be confused with the assistant text."""
+    result = {
+        "output": [
+            {"type": "tool_call", "name": "calc", "arguments": "{}"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "output_text", "text": "After tool: 42"}
+                ],
+            },
+        ]
+    }
+    assert _text_from_result(result) == "After tool: 42"
+
+
 def test_text_from_result_raises_on_unknown_shape():
     result = {"foo": "bar", "baz": 42}
     with pytest.raises(RuntimeError) as exc_info:

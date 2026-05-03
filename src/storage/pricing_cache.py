@@ -32,8 +32,10 @@ from ..fal import pricing as fal_pricing
 
 _log = logging.getLogger("fal_gateway.pricing_cache")
 
-_PKG_DIR = Path(__file__).resolve().parent
-_CACHE_PATH = _PKG_DIR.parent / "cache" / "pricing.json"
+# `__file__` is src/storage/pricing_cache.py — package root is src/, repo root
+# is one level above. Cache files live at repo root, not inside src/.
+_PKG_ROOT = Path(__file__).resolve().parent.parent  # src/
+_CACHE_PATH = _PKG_ROOT.parent / "cache" / "pricing.json"
 
 CACHE_TTL_SECONDS = 30 * 24 * 3600  # 30 days
 SCHEMA_VERSION = 1
