@@ -153,3 +153,40 @@ class PricingRefreshResponse(BaseModel):
     ok: Literal[True] = True
     started: bool
     message: str
+
+
+# =====================================================================
+# User-facing model dropdown rows (T2T, I2T, …)
+# =====================================================================
+
+
+class CatalogEntry(BaseModel):
+    """A row in a user-facing model dropdown.
+
+    Decouples *what the user picks* from *which fal endpoint we actually
+    call*: one fal endpoint can surface as many rows (e.g. OpenRouter's
+    chat-completions router exposes dozens of upstream models via a
+    `model` parameter), or 1 fal endpoint = 1 row for direct models.
+
+    `extra_payload` merges into the assembled fal request before any
+    endpoint-specific transformer runs. This is how we inject
+    `{"model": "anthropic/claude-sonnet-4.5"}` for an OpenRouter row
+    without surfacing a separate `model` widget on the node.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str = Field(
+        description="Friendly string shown in the COMBO and stored in saved workflows."
+    )
+    endpoint_id: str = Field(
+        description="The real fal endpoint id this entry calls."
+    )
+    extra_payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Fields merged into the request payload before transform.",
+    )
+    provider: str = Field(
+        description="Provider name (e.g. 'anthropic', 'fal-ai') for sorting + grouping.",
+    )
+    description: str = Field(default="", description="Optional row tooltip.")

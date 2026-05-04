@@ -1,10 +1,15 @@
-"""Tests for src.endpoint_overrides — widget injection + payload reshape."""
+"""Tests for src.endpoint_overrides — payload-shape transformers.
+
+After K1, widget-level OpenRouter model selection moved to the curated
+T2T catalog (`src/registries/t2t.py`). The endpoint_overrides module now
+only houses payload transformers that reshape `{prompt, system_prompt,
+model}` into the right wire format per fal endpoint.
+"""
 
 from __future__ import annotations
 
 from src.endpoint_overrides import (
     PAYLOAD_TRANSFORMERS,
-    WIDGET_OVERRIDES,
     apply_payload_transformer,
     apply_widget_overrides,
 )
@@ -15,76 +20,20 @@ _OPENROUTER_CHAT = "openrouter/router/openai/v1/chat/completions"
 _OPENROUTER_RESPONSES = "openrouter/router/openai/v1/responses"
 
 
-# ---- widget overrides ---------------------------------------------------
-
-
-def test_widget_overrides_no_op_for_unknown_endpoint():
-    parsed = [WidgetSpec(name="prompt", kind="STRING")]
-    result = apply_widget_overrides("fal-ai/some-other-model", parsed)
-    assert result == parsed
-
-
-def test_openrouter_chat_injects_model_combo_with_friendly_names():
-    parsed = [WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True)]
-    result = apply_widget_overrides(_OPENROUTER_CHAT, parsed)
-    by_name = {w.name: w for w in result}
-    assert "model" in by_name
-    model = by_name["model"]
-    assert model.kind == "COMBO"
-    assert model.required is True
-    # Options are user-facing display names, not raw OpenRouter ids.
-    assert "Anthropic — Claude Sonnet 4.5" in model.options
-    assert "Google — Gemini 2.5 Pro" in model.options
-    assert "OpenAI — GPT-4o" in model.options
-    # Raw ids must NOT appear in the dropdown options.
-    assert "anthropic/claude-sonnet-4.5" not in model.options
-    assert "google/gemini-2.5-pro" not in model.options
-
-
-def test_openrouter_chat_injects_system_prompt():
-    parsed = [WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True)]
-    result = apply_widget_overrides(_OPENROUTER_CHAT, parsed)
-    by_name = {w.name: w for w in result}
-    sp = by_name.get("system_prompt")
-    assert sp is not None
-    assert sp.kind == "STRING"
-    assert sp.multiline is True
-    assert sp.required is False
-
-
-def test_openrouter_chat_preserves_existing_prompt_widget():
-    """If schema-parser already produced a prompt widget, we don't clobber it."""
-    parsed = [WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True)]
-    result = apply_widget_overrides(_OPENROUTER_CHAT, parsed)
-    by_name = {w.name: w for w in result}
-    assert by_name["prompt"].kind == "STRING"
-    assert by_name["prompt"].required is True
-
-
-def test_widget_override_replaces_same_name():
-    """If both parsed-widgets and overrides define the same name, override wins."""
-    parsed = [WidgetSpec(name="model", kind="STRING", default="something")]
-    result = apply_widget_overrides(_OPENROUTER_CHAT, parsed)
-    by_name = {w.name: w for w in result}
-    # The override `model` widget is COMBO, not STRING.
-    assert by_name["model"].kind == "COMBO"
-
-
-# ---- payload transformer ------------------------------------------------
+# ---- payload transformer: chat-completions ------------------------------
 
 
 def test_payload_transformer_no_op_for_unknown_endpoint():
-    payload = {"prompt": "hello", "model": "x"}
+    payload = {"prompt": "hello", "model": "anthropic/claude-3.5-sonnet"}
     result = apply_payload_transformer("fal-ai/some-other-model", payload)
     assert result == payload
 
 
-def test_openrouter_chat_transform_resolves_friendly_name_to_raw_id():
-    """User picks 'Anthropic — Claude Sonnet 4.5' in the dropdown; payload
-    transformer must rewrite to the raw OpenRouter id before sending to fal."""
+def test_openrouter_chat_transform_basic():
+    """Catalog injects raw model id; transformer just wraps prompt → messages."""
     payload = {
         "prompt": "What's the weather?",
-        "model": "Anthropic — Claude Sonnet 4.5",
+        "model": "anthropic/claude-sonnet-4.5",
     }
     result = apply_payload_transformer(_OPENROUTER_CHAT, payload)
     assert "prompt" not in result
@@ -94,26 +43,15 @@ def test_openrouter_chat_transform_resolves_friendly_name_to_raw_id():
     ]
 
 
-def test_openrouter_chat_transform_accepts_raw_id_for_backcompat():
-    """Saved workflows from before display-name dropdown stored raw ids."""
-    payload = {
-        "prompt": "Hi.",
-        "model": "anthropic/claude-3.5-sonnet",
-    }
-    result = apply_payload_transformer(_OPENROUTER_CHAT, payload)
-    assert result["model"] == "anthropic/claude-3.5-sonnet"
-
-
 def test_openrouter_chat_transform_with_system_prompt():
     payload = {
         "prompt": "Translate this.",
         "system_prompt": "You are a French translator.",
-        "model": "OpenAI — GPT-4o",
+        "model": "openai/gpt-4o",
     }
     result = apply_payload_transformer(_OPENROUTER_CHAT, payload)
     assert "system_prompt" not in result
     assert "prompt" not in result
-    assert result["model"] == "openai/gpt-4o"
     assert result["messages"] == [
         {"role": "system", "content": "You are a French translator."},
         {"role": "user", "content": "Translate this."},
@@ -123,14 +61,12 @@ def test_openrouter_chat_transform_with_system_prompt():
 def test_openrouter_chat_transform_skips_empty_system_prompt():
     payload = {"prompt": "Hi.", "system_prompt": "", "model": "x"}
     result = apply_payload_transformer(_OPENROUTER_CHAT, payload)
-    # Only the user message survives; empty system prompt is dropped.
     assert result["messages"] == [{"role": "user", "content": "Hi."}]
 
 
 def test_openrouter_chat_transform_skips_whitespace_only_prompts():
     payload = {"prompt": "   ", "system_prompt": "\n  \t", "model": "x"}
     result = apply_payload_transformer(_OPENROUTER_CHAT, payload)
-    # Whitespace-only counts as empty; messages stays absent.
     assert "messages" not in result
 
 
@@ -147,28 +83,19 @@ def test_openrouter_chat_transform_preserves_other_keys():
     assert result["max_tokens"] == 1000
 
 
-# ---- OpenRouter Responses (separate API contract from chat-completions) -----
-
-
-def test_openrouter_responses_has_widget_overrides():
-    parsed = [WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True)]
-    result = apply_widget_overrides(_OPENROUTER_RESPONSES, parsed)
-    by_name = {w.name: w for w in result}
-    assert "model" in by_name
-    assert "system_prompt" in by_name
+# ---- payload transformer: responses -------------------------------------
 
 
 def test_openrouter_responses_transform_uses_input_not_messages():
     """Responses API takes `{model, input, instructions?}`, NOT chat-completions
-    `{model, messages: [...]}`. The previous bug sent messages to the
-    responses endpoint and got `invalid_prompt`."""
+    `{model, messages: [...]}`."""
     payload = {
         "prompt": "Summarise the news.",
-        "model": "Google — Gemini 2.5 Pro",
+        "model": "google/gemini-2.5-pro",
     }
     result = apply_payload_transformer(_OPENROUTER_RESPONSES, payload)
     assert "prompt" not in result
-    assert "messages" not in result, "Responses API must NOT receive messages"
+    assert "messages" not in result
     assert result["input"] == "Summarise the news."
     assert result["model"] == "google/gemini-2.5-pro"
 
@@ -177,32 +104,41 @@ def test_openrouter_responses_transform_maps_system_prompt_to_instructions():
     payload = {
         "prompt": "Translate.",
         "system_prompt": "You are a translator.",
-        "model": "Anthropic — Claude Sonnet 4.5",
+        "model": "anthropic/claude-sonnet-4.5",
     }
     result = apply_payload_transformer(_OPENROUTER_RESPONSES, payload)
     assert result["instructions"] == "You are a translator."
     assert result["input"] == "Translate."
     assert "system_prompt" not in result
-    # No `messages` field — that's chat-completions territory.
     assert "messages" not in result
 
 
 def test_openrouter_responses_transform_skips_empty_instructions():
-    payload = {"prompt": "Hi.", "system_prompt": "", "model": "OpenAI — GPT-4o"}
+    payload = {"prompt": "Hi.", "system_prompt": "", "model": "openai/gpt-4o"}
     result = apply_payload_transformer(_OPENROUTER_RESPONSES, payload)
     assert "instructions" not in result
     assert result["input"] == "Hi."
 
 
+# ---- widget overrides: deprecated, no-op ------------------------------
+
+
+def test_apply_widget_overrides_is_no_op_after_k1():
+    """Widget-level model selection moved to the T2T catalog. The shim
+    exists for API compatibility with model_registry._entry_from_raw."""
+    parsed = [WidgetSpec(name="prompt", kind="STRING")]
+    result = apply_widget_overrides(_OPENROUTER_CHAT, parsed)
+    assert result == parsed
+
+
 # ---- registry shape -----------------------------------------------------
-
-
-def test_widget_overrides_registry_entries_are_lists_of_widgetspec():
-    for endpoint_id, overrides in WIDGET_OVERRIDES.items():
-        assert isinstance(overrides, list), f"{endpoint_id} overrides must be a list"
-        assert all(isinstance(w, WidgetSpec) for w in overrides)
 
 
 def test_payload_transformers_registry_entries_are_callable():
     for endpoint_id, fn in PAYLOAD_TRANSFORMERS.items():
         assert callable(fn), f"{endpoint_id} transformer must be callable"
+
+
+def test_payload_transformers_registry_covers_both_openrouter_endpoints():
+    assert _OPENROUTER_CHAT in PAYLOAD_TRANSFORMERS
+    assert _OPENROUTER_RESPONSES in PAYLOAD_TRANSFORMERS

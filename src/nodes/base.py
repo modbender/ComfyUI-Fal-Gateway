@@ -17,7 +17,7 @@ import json
 import logging
 from typing import Any, ClassVar
 
-from .. import model_registry
+from .. import model_registry, registries
 from ..endpoint_overrides import apply_payload_transformer
 from ..fal.config import default_config
 from ..fal.output_decoder import decode_artifact, extract_artifact_url
@@ -95,14 +95,20 @@ class _FalGatewayNodeBase:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
-        # Display strings: "[provider] DisplayName — endpoint_id". Sorted by
-        # provider so type-ahead clusters families together. The model_id widget
-        # value is the display string; execute() resolves it back to the raw
-        # endpoint_id (and accepts raw ids for backward compat with saved
-        # workflows).
-        ids = model_registry.list_display_strings(
-            cls.CATEGORY_FILTER, cls.SHAPE_FILTER or None
-        ) or ["<no models available>"]
+        # Categories with a flat curated catalog (T2T/I2T) take a different
+        # dropdown source: each row already represents "one model the user can
+        # pick", with any payload extras (e.g. OpenRouter `model` param)
+        # baked into the CatalogEntry itself. Other categories use the live
+        # fal model list with provider-prefixed display strings.
+        if registries.has_curated_catalog(cls.CATEGORY_FILTER):
+            live = model_registry.filter_models(cls.CATEGORY_FILTER)
+            ids = registries.list_display_names(cls.CATEGORY_FILTER, live) or [
+                "<no models available>"
+            ]
+        else:
+            ids = model_registry.list_display_strings(
+                cls.CATEGORY_FILTER, cls.SHAPE_FILTER or None
+            ) or ["<no models available>"]
 
         required: dict[str, Any] = {
             "model_id": (ids, {}),
@@ -136,13 +142,36 @@ class _FalGatewayNodeBase:
                 "config.ini.example to config.ini in the package directory."
             )
 
-        entry = model_registry.resolve(model_id)
-        if entry is None:
-            raise RuntimeError(f"unknown model_id {model_id!r}")
+        category = type(self).CATEGORY_FILTER
+        catalog_entry = None
+        if registries.has_curated_catalog(category):
+            live = model_registry.filter_models(category)
+            catalog_entry = registries.resolve(category, model_id, live)
+            if catalog_entry is None:
+                raise RuntimeError(
+                    f"unknown {category} catalog entry: {model_id!r}"
+                )
+            entry = model_registry.get(catalog_entry.endpoint_id)
+            endpoint_id = catalog_entry.endpoint_id
+        else:
+            entry = model_registry.resolve(model_id)
+            if entry is None:
+                raise RuntimeError(f"unknown model_id {model_id!r}")
+            endpoint_id = entry.id
 
+        # `entry` may be None for catalog rows whose target endpoint isn't
+        # yet in the live registry (cold cache). _build_payload tolerates a
+        # None entry for purely-catalog-driven dispatch (no widgets to walk).
         payload = await self._build_payload(entry, prompt, kwargs)
-        _log.info("submitting fal job: model=%s payload_keys=%s", entry.id, list(payload.keys()))
-        result = await run_async(entry.id, payload)
+        if catalog_entry is not None:
+            # Catalog `extra_payload` wins over user-set widget values for
+            # the same key — the curated row is authoritative.
+            payload = {**payload, **catalog_entry.extra_payload}
+        # Endpoint-specific payload reshape (e.g. OpenAI chat-completions
+        # expects {messages: [{role, content}]} not flat {prompt}).
+        payload = apply_payload_transformer(endpoint_id, payload)
+        _log.info("submitting fal job: model=%s payload_keys=%s", endpoint_id, list(payload.keys()))
+        result = await run_async(endpoint_id, payload)
         kind = type(self).OUTPUT_KIND
         url = extract_artifact_url(result, kind)
 
@@ -163,11 +192,23 @@ class _FalGatewayNodeBase:
 
     async def _build_payload(
         self,
-        entry: ModelEntry,
+        entry: ModelEntry | None,
         prompt: str,
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {}
+
+        # When `entry` is None we're on the catalog-driven dispatch path (T2T/
+        # I2T) and there are no widget specs to walk — just stash the static
+        # widgets (prompt + system_prompt + any extras) into the payload.
+        if entry is None:
+            if prompt:
+                payload["prompt"] = prompt
+            for k, v in kwargs.items():
+                if v is None or v == "":
+                    continue
+                payload[k] = v
+            return payload
 
         widgets_by_name = {w.name: w for w in entry.widgets}
 
@@ -175,6 +216,10 @@ class _FalGatewayNodeBase:
         prompt_widget = widgets_by_name.get("prompt")
         if prompt_widget is not None and prompt:
             payload[prompt_widget.fal_key] = prompt
+        elif prompt:
+            # Catalog-driven node: prompt isn't in entry.widgets but we still
+            # want to send it at the canonical key.
+            payload["prompt"] = prompt
 
         # 2. Image sockets: upload tensors → URLs at each widget's payload_key
         for w in entry.widgets:
@@ -197,6 +242,16 @@ class _FalGatewayNodeBase:
             if value is None or value == "":
                 continue
             payload[w.fal_key] = _coerce(value, w.kind)
+
+        # Pass through any kwargs whose key isn't a known widget — covers
+        # static node-level widgets (e.g. T2T's `system_prompt`) that the
+        # transformer will reshape downstream.
+        for k, v in kwargs.items():
+            if k in payload or k in widgets_by_name:
+                continue
+            if v is None or v == "":
+                continue
+            payload[k] = v
 
         # 4. Endpoint-specific payload reshape (e.g. OpenAI chat-completions
         #    expects {messages: [{role, content}]} not flat {prompt}).

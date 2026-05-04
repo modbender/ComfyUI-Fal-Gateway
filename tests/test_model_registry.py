@@ -76,25 +76,7 @@ def test_llm_does_not_exclude_general_chat_models():
     assert not _matches_any_llm_exclude("fal-ai/bytedance/seed/v2/mini")
 
 
-# ---- endpoint widget overrides apply at registry build time ------------
-
-
-def test_entry_from_raw_applies_openrouter_widget_overrides():
-    """When fal returns the openrouter chat-completions endpoint, our entry
-    must surface the curated `model` and `system_prompt` widgets so the
-    frontend dropdown is usable."""
-    raw = {
-        "endpoint_id": "openrouter/router/openai/v1/chat/completions",
-        "metadata": {
-            "display_name": "OpenRouter Chat Completions",
-            "category": "llm",
-            "status": "active",
-        },
-    }
-    entry = _entry_from_raw(raw)
-    assert entry is not None
-    by_name = {w.name: w for w in entry.widgets}
-    assert "model" in by_name, "openrouter chat must expose `model` dropdown"
-    assert by_name["model"].kind == "COMBO"
-    assert "Anthropic — Claude Sonnet 4.5" in by_name["model"].options
-    assert "system_prompt" in by_name
+# Note: K1 moved widget-level model selection out of model_registry and
+# into the curated T2T catalog (`src/registries/t2t.py`). The previous
+# test for endpoint-level widget overrides in `_entry_from_raw` is gone.
+# Catalog round-trip lives in `tests/test_registries.py`.

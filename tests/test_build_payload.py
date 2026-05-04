@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.endpoint_overrides import apply_payload_transformer
 from src.nodes.base import _FalGatewayNodeBase
 from src.widget_spec import ModelEntry, WidgetSpec
 
@@ -205,35 +206,38 @@ async def test_build_payload_handles_full_seedance_2_style_kwarg_set(node):
     assert payload["generate_audio"] is True  # default carried
 
 
-# ---- endpoint-specific payload transformer -------------------------------
+# ---- catalog-driven dispatch (T2T/I2T) ----------------------------------
+#
+# After K1, the OpenRouter chat-completions endpoint is reached via the
+# curated T2T catalog rather than per-endpoint widget overrides. The
+# integration is: `_build_payload(None, prompt, kwargs)` → merge catalog
+# `extra_payload` → `apply_payload_transformer(endpoint_id, payload)`.
+# These tests verify the assembled payload at each step.
 
 
-def _openrouter_chat_entry() -> ModelEntry:
-    """ModelEntry shaped like what _entry_from_raw would produce for openrouter
-    chat-completions after widget overrides are applied."""
-    return ModelEntry(
-        id="openrouter/router/openai/v1/chat/completions",
-        display_name="OpenRouter Chat Completions",
-        category="llm",
-        shape="text_only",
-        widgets=[
-            WidgetSpec(name="prompt", kind="STRING", required=True, multiline=True,
-                       payload_key="prompt"),
-            WidgetSpec(name="model", kind="COMBO", default="openai/gpt-4o",
-                       options=["openai/gpt-4o", "anthropic/claude-sonnet-4.5"],
-                       payload_key="model"),
-            WidgetSpec(name="system_prompt", kind="STRING", default="", multiline=True,
-                       payload_key="system_prompt"),
-        ],
-    )
-
-
-async def test_build_payload_openrouter_chat_reshapes_to_messages(node):
-    entry = _openrouter_chat_entry()
+async def test_build_payload_catalog_path_passes_static_widgets_through(node):
+    """When `entry` is None (catalog dispatch), _build_payload just stages
+    the prompt + any static node-level widgets (system_prompt) in the
+    payload for the transformer to reshape."""
     payload = await node._build_payload(
-        entry,
+        None,
         "Hello there.",
-        {"model": "anthropic/claude-sonnet-4.5", "system_prompt": "Be terse."},
+        {"system_prompt": "Be terse."},
+    )
+    assert payload == {"prompt": "Hello there.", "system_prompt": "Be terse."}
+
+
+async def test_catalog_dispatch_to_chat_completions_end_to_end(node):
+    """Full catalog dispatch: build → merge extra_payload → transform."""
+    payload = await node._build_payload(
+        None,
+        "Hello there.",
+        {"system_prompt": "Be terse."},
+    )
+    # catalog entry's extra_payload — what the T2T curated registry injects
+    payload = {**payload, **{"model": "anthropic/claude-sonnet-4.5"}}
+    payload = apply_payload_transformer(
+        "openrouter/router/openai/v1/chat/completions", payload
     )
     assert "prompt" not in payload
     assert "system_prompt" not in payload
@@ -244,13 +248,11 @@ async def test_build_payload_openrouter_chat_reshapes_to_messages(node):
     ]
 
 
-async def test_build_payload_openrouter_chat_no_system_prompt(node):
-    """Empty system_prompt → only the user message survives in messages."""
-    entry = _openrouter_chat_entry()
-    payload = await node._build_payload(
-        entry,
-        "What time is it?",
-        {"model": "openai/gpt-4o"},  # system_prompt absent → uses default ""
+async def test_catalog_dispatch_with_empty_system_prompt(node):
+    payload = await node._build_payload(None, "What time is it?", {"system_prompt": ""})
+    payload = {**payload, **{"model": "openai/gpt-4o"}}
+    payload = apply_payload_transformer(
+        "openrouter/router/openai/v1/chat/completions", payload
     )
     assert payload["messages"] == [{"role": "user", "content": "What time is it?"}]
 
