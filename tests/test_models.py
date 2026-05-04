@@ -1,4 +1,4 @@
-"""Tests for src/api_models.py — Pydantic boundary models.
+"""Tests for src/models.py — Pydantic boundary + domain models.
 
 We test the shapes that protect against external variability:
   - Field aliases (PriceEntry: `unit_price` vs `price`, `unit` vs `pricing_unit`)
@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from src.api_models import (
+from src.models import (
     CatalogCacheFile,
     ErrorResponse,
     HealthResponse,

@@ -26,7 +26,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from ..api_models import PricingCacheFile
+from ..models import PricingCacheFile
 from ..fal import pricing as fal_pricing
 
 

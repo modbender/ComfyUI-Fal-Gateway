@@ -22,7 +22,7 @@ from aiohttp import web
 from pydantic import BaseModel
 
 from . import model_registry
-from .api_models import (
+from .models import (
     ErrorResponse,
     HealthResponse,
     PricingRefreshResponse,

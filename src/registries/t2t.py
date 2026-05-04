@@ -20,7 +20,7 @@ selections would just confuse the user.
 
 from __future__ import annotations
 
-from ..api_models import CatalogEntry
+from ..models import CatalogEntry
 
 
 _OPENROUTER_CHAT = "openrouter/router/openai/v1/chat/completions"

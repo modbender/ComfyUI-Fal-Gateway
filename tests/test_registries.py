@@ -8,7 +8,7 @@ set), sorted for type-ahead consistency.
 from __future__ import annotations
 
 from src import registries
-from src.registries import t2t
+from src.registries import i2t, t2t
 from src.widget_spec import ModelEntry
 
 
@@ -101,6 +101,56 @@ def test_build_catalog_unknown_category_returns_only_live_entries():
     out = registries.build_catalog("something-else", live)
     assert len(out) == 1
     assert out[0].endpoint_id == "fal-ai/foo"
+
+
+# ---- I2T catalog ----------------------------------------------------------
+
+
+def test_i2t_curated_is_empty():
+    """Vision endpoints are mostly direct; no curation needed beyond hiding."""
+    assert i2t.CURATED == []
+
+
+def test_i2t_hides_nsfw_classifiers():
+    assert "fal-ai/imageutils/nsfw" in i2t.HIDDEN_ENDPOINTS
+    assert "fal-ai/x-ailab/nsfw" in i2t.HIDDEN_ENDPOINTS
+
+
+def test_i2t_hides_video_only_sub_paths():
+    assert "fal-ai/sa2va/4b/video" in i2t.HIDDEN_ENDPOINTS
+    assert "fal-ai/sa2va/8b/video" in i2t.HIDDEN_ENDPOINTS
+    assert "fal-ai/video-understanding" in i2t.HIDDEN_ENDPOINTS
+
+
+def test_i2t_hides_florence2_duplicates_keeping_detailed_caption():
+    assert "fal-ai/florence-2-large/caption" in i2t.HIDDEN_ENDPOINTS
+    assert "fal-ai/florence-2-large/more-detailed-caption" in i2t.HIDDEN_ENDPOINTS
+    assert "fal-ai/florence-2-large/ocr" in i2t.HIDDEN_ENDPOINTS
+    # The canonical Florence row stays (its endpoint isn't in HIDDEN).
+    assert "fal-ai/florence-2-large/detailed-caption" not in i2t.HIDDEN_ENDPOINTS
+
+
+def test_i2t_filters_live_vision_into_useful_subset():
+    """Synthetic live list mirroring fal's actual `vision` category — verify
+    HIDDEN drops the noise and keeps the caption-shaped models."""
+    live = [
+        _live("fal-ai/moondream2", "Moondream2", category="vision"),
+        _live("fal-ai/moondream2/object-detection", "Moondream2", category="vision"),
+        _live("fal-ai/imageutils/nsfw", "NSFW Filter", category="vision"),
+        _live("fal-ai/sam-3/image/embed", "Sam 3", category="vision"),
+        _live("fal-ai/llava-next", "LLaVA v1.6 34B", category="vision"),
+        _live("fal-ai/sa2va/8b/video", "Sa2VA 8B Video", category="vision"),
+    ]
+    out = registries.build_catalog("vision", live)
+    endpoint_ids = {e.endpoint_id for e in out}
+    # Kept
+    assert "fal-ai/moondream2" in endpoint_ids
+    assert "fal-ai/llava-next" in endpoint_ids
+    # Dropped (hidden)
+    assert "fal-ai/imageutils/nsfw" not in endpoint_ids
+    assert "fal-ai/sam-3/image/embed" not in endpoint_ids
+    assert "fal-ai/sa2va/8b/video" not in endpoint_ids
+    assert "fal-ai/moondream2/object-detection" not in endpoint_ids
 
 
 # ---- has_curated_catalog dispatcher --------------------------------------

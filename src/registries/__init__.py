@@ -20,7 +20,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ..api_models import CatalogEntry
+from ..model_registry import extract_provider
+from ..models import CatalogEntry
 from ..widget_spec import ModelEntry
 from . import i2t, t2t
 
@@ -40,12 +41,6 @@ def has_curated_catalog(category: str) -> bool:
     """True if the category uses a flat curated catalog instead of the
     live `model_registry.list_display_strings` dropdown."""
     return category in _CATEGORY_CURATED
-
-
-def _extract_provider(endpoint_id: str) -> str:
-    if not endpoint_id:
-        return "unknown"
-    return endpoint_id.split("/", 1)[0]
 
 
 def build_catalog(
@@ -75,7 +70,7 @@ def build_catalog(
     for entry in live:
         if entry.id in hidden or entry.id in direct_curated:
             continue
-        provider = _extract_provider(entry.id)
+        provider = extract_provider(entry.id) or "unknown"
         out.append(
             CatalogEntry(
                 display_name=f"[{provider}] {entry.display_name}",

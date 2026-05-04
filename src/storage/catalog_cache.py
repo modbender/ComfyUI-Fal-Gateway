@@ -23,8 +23,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from ..api_models import CatalogCacheFile
-from ..endpoint_overrides import apply_widget_overrides
+from ..models import CatalogCacheFile
 from ..widget_spec import ModelEntry
 
 
@@ -50,9 +49,6 @@ def load_if_fresh() -> list[ModelEntry] | None:
 
     Returns None when the cache is missing, stale, or unreadable — caller
     should fall through to a live fetch.
-
-    Re-applies `apply_widget_overrides` on every load so future override
-    registry changes take effect without forcing a cache refetch.
     """
     if not CACHE_PATH.exists():
         return None
@@ -74,11 +70,7 @@ def load_if_fresh() -> list[ModelEntry] | None:
             SCHEMA_VERSION,
         )
         return None
-    models: list[ModelEntry] = []
-    for raw in cache.models:
-        entry = ModelEntry.from_dict(raw)
-        entry.widgets = apply_widget_overrides(entry.id, entry.widgets)
-        models.append(entry)
+    models = [ModelEntry.from_dict(raw) for raw in cache.models]
     _log.info("loaded %d models from cache (age %.1f hours)", len(models), age / 3600)
     return models
 

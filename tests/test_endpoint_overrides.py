@@ -11,9 +11,7 @@ from __future__ import annotations
 from src.endpoint_overrides import (
     PAYLOAD_TRANSFORMERS,
     apply_payload_transformer,
-    apply_widget_overrides,
 )
-from src.widget_spec import WidgetSpec
 
 
 _OPENROUTER_CHAT = "openrouter/router/openai/v1/chat/completions"
@@ -118,17 +116,6 @@ def test_openrouter_responses_transform_skips_empty_instructions():
     result = apply_payload_transformer(_OPENROUTER_RESPONSES, payload)
     assert "instructions" not in result
     assert result["input"] == "Hi."
-
-
-# ---- widget overrides: deprecated, no-op ------------------------------
-
-
-def test_apply_widget_overrides_is_no_op_after_k1():
-    """Widget-level model selection moved to the T2T catalog. The shim
-    exists for API compatibility with model_registry._entry_from_raw."""
-    parsed = [WidgetSpec(name="prompt", kind="STRING")]
-    result = apply_widget_overrides(_OPENROUTER_CHAT, parsed)
-    assert result == parsed
 
 
 # ---- registry shape -----------------------------------------------------

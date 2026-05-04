@@ -76,18 +76,3 @@ def apply_payload_transformer(
     if transformer is None:
         return payload
     return transformer(payload)
-
-
-# ---------------------------------------------------------------------------
-# Backward-compat shims — kept so `_entry_from_raw` and call-sites that
-# imported widget-override helpers don't crash. After K1 the widget-override
-# system has nothing to inject (the OpenRouter `model` widget is gone), so
-# `apply_widget_overrides` is a no-op pass-through.
-# ---------------------------------------------------------------------------
-
-
-def apply_widget_overrides(endpoint_id: str, widgets: list) -> list:
-    """No-op since K1: widget-level model selection moved to the curated
-    T2T catalog (`src/registries/t2t.py`). Kept for API stability with
-    `model_registry._entry_from_raw` and existing imports."""
-    return widgets

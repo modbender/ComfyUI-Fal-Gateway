@@ -11,7 +11,7 @@ sweep — see `src/storage/pricing_cache.py`.
 
 Response field aliases (`unit_price` vs `price`, `unit` vs `pricing_unit`)
 and envelope variants (`prices` vs `models` vs `data`) are handled by
-`PricingPage` in `src/api_models.py` — Pydantic does the alias work
+`PricingPage` in `src/models.py` — Pydantic does the alias work
 declaratively.
 """
 
@@ -25,7 +25,7 @@ from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
-from ..api_models import PricingPage
+from ..models import PricingPage
 from ._http import (
     DEFAULT_TIMEOUT_S,
     FAL_API_BASE,

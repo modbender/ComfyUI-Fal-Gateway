@@ -19,7 +19,6 @@ import logging
 import threading
 from typing import Any
 
-from .endpoint_overrides import apply_widget_overrides
 from .fal import catalog as fal_catalog
 from .schema_resolver import SchemaError, parse_openapi
 from .storage import catalog_cache
@@ -109,8 +108,6 @@ def _entry_from_raw(raw: dict[str, Any]) -> ModelEntry | None:
     else:
         widgets = _synthesize_widgets(category)
         shape = _shape_from_category(category)
-
-    widgets = apply_widget_overrides(str(endpoint_id), widgets)
 
     return ModelEntry(
         id=str(endpoint_id),

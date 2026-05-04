@@ -1,6 +1,6 @@
-"""Pydantic models for boundary I/O.
+"""Pydantic models for boundary I/O + user-facing catalog rows.
 
-This module owns the shapes that touch the *outside world*:
+This module owns every Pydantic model the package uses:
 
   - **fal API parsing** — `PriceEntry`, `PricingPage` for `/v1/models/pricing`
     responses. Field aliases tolerate fal's variant key names without manual
@@ -10,10 +10,11 @@ This module owns the shapes that touch the *outside world*:
     `model_validate_json` + `model_dump_json`.
   - **HTTP response shapes** — typed envelopes for the four routes in
     `server_routes.py`. The frontend wire format is unchanged.
+  - **Catalog rows** — `CatalogEntry` for T2T/I2T flat dropdowns
+    (`src/registries/`).
 
-Internal domain objects (`WidgetSpec`, `ModelEntry`) deliberately stay as
-plain dataclasses in `widget_spec.py` — they're not boundary concerns and
-don't need runtime validation.
+Internal domain objects that don't need runtime validation (`WidgetSpec`,
+`ModelEntry`) stay as plain dataclasses in `widget_spec.py`.
 
 Model conventions follow ComfyUI's own `comfy_api_nodes/apis/*.py`: plain
 `pydantic.BaseModel` subclasses, `Field(default, description=..., ge=...)`,
