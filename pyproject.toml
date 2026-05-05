@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-fal-gateway"
-version = "0.2.0"
+version = "0.3.0"
 description = "Schema-driven ComfyUI gateway for fal.ai — seven unified nodes covering text/image/reference-to-video AND text/image/reference-to-image AND upscale, all auto-populating from fal's model catalog. New fal models appear in the dropdown automatically; no per-model code required."
 readme = "README.md"
 requires-python = ">=3.10"
