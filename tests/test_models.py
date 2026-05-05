@@ -9,9 +9,7 @@ We test the shapes that protect against external variability:
 
 from __future__ import annotations
 
-import json
 
-import pytest
 
 from src.models import (
     CatalogCacheFile,

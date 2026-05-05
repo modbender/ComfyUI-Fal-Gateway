@@ -13,11 +13,14 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import numpy as np
 from PIL import Image
+
+if TYPE_CHECKING:
+    import torch  # type: ignore[import-not-found]
 
 
 _log = logging.getLogger("fal_gateway.decoder")

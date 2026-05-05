@@ -16,6 +16,7 @@ minimal spec from the model's category.
 from __future__ import annotations
 
 import logging
+import re as _re
 import threading
 from typing import Any
 
@@ -188,8 +189,6 @@ def get(model_id: str) -> ModelEntry | None:
             return m
     return None
 
-
-import re as _re
 
 # Per-category endpoint-id exclude patterns. fal's `llm` category is a grab-bag
 # that includes embeddings + moderation + tool endpoints alongside chat models.

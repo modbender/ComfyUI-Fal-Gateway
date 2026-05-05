@@ -17,9 +17,7 @@ would charge real money.
 
 from __future__ import annotations
 
-import os
 import socket
-from urllib.error import URLError
 
 import pytest
 

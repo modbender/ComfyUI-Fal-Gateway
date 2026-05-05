@@ -23,7 +23,7 @@ from ..fal.config import default_config
 from ..fal.decoder import decode_artifact, extract_artifact_url
 from ..fal.runner import run_async
 from ..fal.uploads import upload_tensor_image
-from ..widget_spec import ModelEntry, WidgetSpec
+from ..widget_spec import ModelEntry
 
 
 _log = logging.getLogger("fal_gateway.nodes")

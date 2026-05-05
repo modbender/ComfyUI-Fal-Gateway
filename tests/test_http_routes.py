@@ -12,7 +12,6 @@ how routes are registered or what they import, these tests fail.
 from __future__ import annotations
 
 import base64
-from unittest.mock import patch
 
 import pytest
 from aiohttp import web

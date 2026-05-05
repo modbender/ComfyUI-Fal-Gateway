@@ -5,11 +5,9 @@ patterns + endpoint-override application.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from src.model_registry import _CATEGORY_EXCLUDE_PATTERNS, _entry_from_raw
-from src.widget_spec import ModelEntry
 
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures"

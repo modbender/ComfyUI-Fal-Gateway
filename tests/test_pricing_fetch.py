@@ -12,7 +12,6 @@ import json
 from unittest.mock import patch
 from urllib import error as urllib_error
 
-import pytest
 
 from src.fal.pricing import PRICING_BATCH_SIZE, fetch_all_pricing
 
