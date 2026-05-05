@@ -38,6 +38,10 @@ dev = [
 Repository = "https://github.com/modbender/ComfyUI-Fal-Gateway"
 Issues = "https://github.com/modbender/ComfyUI-Fal-Gateway/issues"
 
+[tool.setuptools.packages.find]
+include = ["src*"]
+exclude = ["tests*", "examples*", "cache*"]
+
 [tool.setuptools.package-data]
 "src.data" = ["*.json"]
 
