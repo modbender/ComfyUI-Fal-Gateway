@@ -30,9 +30,9 @@ from ..models import PricingCacheFile
 from ..fal import pricing as fal_pricing
 
 
-_log = logging.getLogger("fal_gateway.pricing_cache")
+_log = logging.getLogger("fal_gateway.pricing")
 
-# `__file__` is src/storage/pricing_cache.py — package root is src/, repo root
+# `__file__` is src/storage/pricing.py — package root is src/, repo root
 # is one level above. Cache files live at repo root, not inside src/.
 _PKG_ROOT = Path(__file__).resolve().parent.parent  # src/
 _CACHE_PATH = _PKG_ROOT.parent / "cache" / "pricing.json"

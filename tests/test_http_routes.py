@@ -19,8 +19,8 @@ from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 from src import model_registry
-from src.storage import catalog_cache, pricing_cache
-from src.server_routes import register_routes
+from src.storage import catalog as catalog_cache, pricing as pricing_cache
+from src.routes import register_routes
 from src.widget_spec import ModelEntry, WidgetSpec
 
 

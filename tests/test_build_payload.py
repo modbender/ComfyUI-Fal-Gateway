@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.endpoint_overrides import apply_payload_transformer
+from src.overrides import apply_payload_transformer
 from src.nodes.base import _FalGatewayNodeBase
 from src.widget_spec import ModelEntry, WidgetSpec
 

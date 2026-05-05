@@ -1,4 +1,4 @@
-"""Tests for output_decoder's "text" kind — used by LLM and VLM nodes.
+"""Tests for src.fal.decoder's "text" kind — used by LLM and VLM nodes.
 
 Text outputs are never downloaded — fal returns the response in the result
 dict directly. The text kind has no URL artifact, so:
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.fal.output_decoder import (
+from src.fal.decoder import (
     _text_from_result,
     decode_artifact,
     extract_artifact_url,

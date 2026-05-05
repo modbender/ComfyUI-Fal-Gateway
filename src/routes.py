@@ -29,7 +29,7 @@ from .models import (
     RefreshResponse,
     SchemaResponse,
 )
-from .storage import catalog_cache, pricing_cache
+from .storage import catalog as catalog_cache, pricing as pricing_cache
 
 
 _log = logging.getLogger("fal_gateway.routes")

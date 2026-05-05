@@ -18,9 +18,9 @@ import logging
 from typing import Any, ClassVar
 
 from .. import catalogs, model_registry
-from ..endpoint_overrides import apply_payload_transformer
+from ..overrides import apply_payload_transformer
 from ..fal.config import default_config
-from ..fal.output_decoder import decode_artifact, extract_artifact_url
+from ..fal.decoder import decode_artifact, extract_artifact_url
 from ..fal.runner import run_async
 from ..fal.uploads import upload_tensor_image
 from ..widget_spec import ModelEntry, WidgetSpec

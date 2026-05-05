@@ -1,6 +1,6 @@
 """Model registry — in-memory list of fal.ai models with display + filter helpers.
 
-Loading order on first access (delegated to `storage.catalog_cache`):
+Loading order on first access (delegated to `storage.catalog`):
   1. `cache/catalog.json` if present, fresh, and schema-current.
   2. Live fetch via `fal.catalog.fetch_active_video_models()` (blocks once,
      then persisted to cache for subsequent restarts).
@@ -21,7 +21,7 @@ from typing import Any
 
 from .fal import catalog as fal_catalog
 from .schema_resolver import SchemaError, parse_openapi
-from .storage import catalog_cache
+from .storage import catalog as catalog_cache
 from .widget_spec import ModelEntry, WidgetSpec
 
 

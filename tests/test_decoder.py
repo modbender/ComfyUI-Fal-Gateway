@@ -1,4 +1,4 @@
-"""Tests for output_decoder: image bytes → tensor decode + result-URL extraction.
+"""Tests for src.fal.decoder: image bytes → tensor decode + result-URL extraction.
 
 Tests generate image bytes inline via PIL — no on-disk fixtures needed.
 Network-bound `fetch_image_as_tensor` and `decode_artifact` integration paths
@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from src.fal.output_decoder import (
+from src.fal.decoder import (
     _decode_image_bytes_to_tensor,
     _image_url_from_result,
     extract_artifact_url,

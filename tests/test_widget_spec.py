@@ -1,6 +1,6 @@
 """Tests for WidgetSpec / ModelEntry serialization.
 
-ModelEntry no longer carries pricing — pricing lives in src/pricing_cache.py
+ModelEntry no longer carries pricing — pricing lives in src/storage/pricing.py
 under cache/pricing.json. Tests here cover the catalog-only round-trip and
 backward compatibility with v4 caches that DO have stray pricing keys (we
 just ignore them).

@@ -20,7 +20,7 @@ import numpy as np
 from PIL import Image
 
 
-_log = logging.getLogger("fal_gateway.output_decoder")
+_log = logging.getLogger("fal_gateway.decoder")
 _DOWNLOAD_TIMEOUT_S = 120.0
 
 

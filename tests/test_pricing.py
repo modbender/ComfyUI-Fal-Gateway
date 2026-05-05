@@ -1,4 +1,4 @@
-"""Tests for src/pricing_cache.py — the pricing-only cache file with skip-list
+"""Tests for src/storage/pricing.py — the pricing-only cache file with skip-list
 and 30-day TTL.
 
 Background refresh is invoked via a real `threading.Thread` in production;
@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.storage import pricing_cache
+from src.storage import pricing as pricing_cache
 
 
 @pytest.fixture(autouse=True)

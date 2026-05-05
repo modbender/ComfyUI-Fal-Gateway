@@ -7,7 +7,7 @@ pricing index).
 
 Single-id 404s land in the `newly_no_pricing` return set so callers can
 persist a skip-list and avoid re-requesting known-unknown ids on the next
-sweep — see `src/storage/pricing_cache.py`.
+sweep — see `src/storage/pricing.py`.
 
 Response field aliases (`unit_price` vs `price`, `unit` vs `pricing_unit`)
 and envelope variants (`prices` vs `models` vs `data`) are handled by

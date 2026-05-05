@@ -1,4 +1,4 @@
-"""Tests for server_routes pure helpers.
+"""Tests for src.routes pure helpers.
 
 The aiohttp route handlers are integration-tested via the running ComfyUI
 server. Here we cover the pure logic — base64 decode, padding restoration,
@@ -12,7 +12,7 @@ import base64
 
 import pytest
 
-from src.server_routes import decode_model_id_b64
+from src.routes import decode_model_id_b64
 
 
 def _js_btoa_strip_padding(s: str) -> str:

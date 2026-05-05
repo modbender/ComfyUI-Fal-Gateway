@@ -9,7 +9,7 @@ This module owns every Pydantic model the package uses:
     files we read/write under `cache/`. Replaces hand-rolled load/save with
     `model_validate_json` + `model_dump_json`.
   - **HTTP response shapes** — typed envelopes for the four routes in
-    `server_routes.py`. The frontend wire format is unchanged.
+    `routes.py`. The frontend wire format is unchanged.
   - **Catalog rows** — `CatalogEntry` for T2T/I2T flat dropdowns
     (`src/catalogs/`).
 
