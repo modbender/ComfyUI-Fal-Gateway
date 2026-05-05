@@ -1,7 +1,7 @@
 """Tests for src.endpoint_overrides — payload-shape transformers.
 
 After K1, widget-level OpenRouter model selection moved to the curated
-T2T catalog (`src/registries/t2t.py`). The endpoint_overrides module now
+T2T catalog (`src/catalogs/t2t.py`). The endpoint_overrides module now
 only houses payload transformers that reshape `{prompt, system_prompt,
 model}` into the right wire format per fal endpoint.
 """

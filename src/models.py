@@ -11,7 +11,7 @@ This module owns every Pydantic model the package uses:
   - **HTTP response shapes** — typed envelopes for the four routes in
     `server_routes.py`. The frontend wire format is unchanged.
   - **Catalog rows** — `CatalogEntry` for T2T/I2T flat dropdowns
-    (`src/registries/`).
+    (`src/catalogs/`).
 
 Internal domain objects that don't need runtime validation (`WidgetSpec`,
 `ModelEntry`) stay as plain dataclasses in `widget_spec.py`.

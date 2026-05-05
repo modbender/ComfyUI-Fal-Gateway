@@ -77,6 +77,6 @@ def test_llm_does_not_exclude_general_chat_models():
 
 
 # Note: K1 moved widget-level model selection out of model_registry and
-# into the curated T2T catalog (`src/registries/t2t.py`). The previous
+# into the curated T2T catalog (`src/catalogs/t2t.py`). The previous
 # test for endpoint-level widget overrides in `_entry_from_raw` is gone.
-# Catalog round-trip lives in `tests/test_registries.py`.
+# Catalog round-trip lives in `tests/test_catalogs.py`.

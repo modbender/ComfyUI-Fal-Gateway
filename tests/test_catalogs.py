@@ -1,4 +1,4 @@
-"""Tests for `src/registries/` — curated catalog + live merge dispatch.
+"""Tests for `src/catalogs/` — curated catalog + live merge dispatch.
 
 Each `CatalogEntry` is one user-facing dropdown row. The registry merges
 hand-curated rows with live fal entries (filtered by the category's HIDDEN
@@ -7,8 +7,8 @@ set), sorted for type-ahead consistency.
 
 from __future__ import annotations
 
-from src import registries
-from src.registries import i2t, t2t
+from src import catalogs
+from src.catalogs import i2t, t2t
 from src.widget_spec import ModelEntry
 
 
@@ -52,7 +52,7 @@ def test_t2t_hidden_endpoints_includes_router_parents():
 
 
 def test_build_catalog_returns_curated_when_no_live_entries():
-    out = registries.build_catalog("llm", [])
+    out = catalogs.build_catalog("llm", [])
     assert len(out) == len(t2t.CURATED)
 
 
@@ -64,7 +64,7 @@ def test_build_catalog_filters_hidden_endpoints_from_live():
         _live("openrouter/router/openai/v1/responses", "Responses router"),
         _live("fal-ai/bytedance/seed/v2/mini", "Seed 2.0 Mini"),
     ]
-    out = registries.build_catalog("llm", live)
+    out = catalogs.build_catalog("llm", live)
     endpoint_ids = {e.endpoint_id for e in out}
     assert "fal-ai/bytedance/seed/v2/mini" in endpoint_ids
     # The hidden routers must not surface as standalone rows.
@@ -80,7 +80,7 @@ def test_build_catalog_auto_wraps_unknown_live_entries():
     """A live LLM endpoint we don't curate (and isn't in HIDDEN) should
     appear with provider-prefixed display name."""
     live = [_live("nvidia/some-future-llm", "Future LLM")]
-    out = registries.build_catalog("llm", live)
+    out = catalogs.build_catalog("llm", live)
     matches = [e for e in out if e.endpoint_id == "nvidia/some-future-llm"]
     assert len(matches) == 1
     assert matches[0].display_name == "[nvidia] Future LLM"
@@ -90,7 +90,7 @@ def test_build_catalog_auto_wraps_unknown_live_entries():
 
 def test_build_catalog_results_sorted_by_provider_then_name():
     """Sort key is (provider.lower(), display_name.lower())."""
-    out = registries.build_catalog("llm", [])
+    out = catalogs.build_catalog("llm", [])
     providers_in_order = [e.provider for e in out]
     assert providers_in_order == sorted(providers_in_order, key=str.lower)
 
@@ -98,7 +98,7 @@ def test_build_catalog_results_sorted_by_provider_then_name():
 def test_build_catalog_unknown_category_returns_only_live_entries():
     """A category with no curated registry just wraps live entries."""
     live = [_live("fal-ai/foo", "Foo Model", category="something-else")]
-    out = registries.build_catalog("something-else", live)
+    out = catalogs.build_catalog("something-else", live)
     assert len(out) == 1
     assert out[0].endpoint_id == "fal-ai/foo"
 
@@ -141,7 +141,7 @@ def test_i2t_filters_live_vision_into_useful_subset():
         _live("fal-ai/llava-next", "LLaVA v1.6 34B", category="vision"),
         _live("fal-ai/sa2va/8b/video", "Sa2VA 8B Video", category="vision"),
     ]
-    out = registries.build_catalog("vision", live)
+    out = catalogs.build_catalog("vision", live)
     endpoint_ids = {e.endpoint_id for e in out}
     # Kept
     assert "fal-ai/moondream2" in endpoint_ids
@@ -157,37 +157,37 @@ def test_i2t_filters_live_vision_into_useful_subset():
 
 
 def test_has_curated_catalog_true_for_llm():
-    assert registries.has_curated_catalog("llm") is True
+    assert catalogs.has_curated_catalog("llm") is True
 
 
 def test_has_curated_catalog_true_for_vision():
     """Even an empty curated list (i2t before K2) marks the category as
     catalog-driven so the node uses the dispatch path."""
-    assert registries.has_curated_catalog("vision") is True
+    assert catalogs.has_curated_catalog("vision") is True
 
 
 def test_has_curated_catalog_false_for_video_categories():
-    assert registries.has_curated_catalog("text-to-video") is False
-    assert registries.has_curated_catalog("image-to-image") is False
+    assert catalogs.has_curated_catalog("text-to-video") is False
+    assert catalogs.has_curated_catalog("image-to-image") is False
 
 
 # ---- resolve (display_name → CatalogEntry) -------------------------------
 
 
 def test_resolve_finds_curated_entry_by_display_name():
-    out = registries.resolve("llm", "[Anthropic] Claude Sonnet 4.5", [])
+    out = catalogs.resolve("llm", "[Anthropic] Claude Sonnet 4.5", [])
     assert out is not None
     assert out.endpoint_id == "openrouter/router/openai/v1/chat/completions"
     assert out.extra_payload["model"] == "anthropic/claude-sonnet-4.5"
 
 
 def test_resolve_returns_none_for_unknown_display_name():
-    assert registries.resolve("llm", "[Made-up] No Such Model", []) is None
+    assert catalogs.resolve("llm", "[Made-up] No Such Model", []) is None
 
 
 def test_resolve_finds_auto_wrapped_live_entry():
     live = [_live("nvidia/nemotron-3", "Nemotron 3")]
-    out = registries.resolve("llm", "[nvidia] Nemotron 3", live)
+    out = catalogs.resolve("llm", "[nvidia] Nemotron 3", live)
     assert out is not None
     assert out.endpoint_id == "nvidia/nemotron-3"
     assert out.extra_payload == {}

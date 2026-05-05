@@ -17,7 +17,7 @@ import json
 import logging
 from typing import Any, ClassVar
 
-from .. import model_registry, registries
+from .. import catalogs, model_registry
 from ..endpoint_overrides import apply_payload_transformer
 from ..fal.config import default_config
 from ..fal.output_decoder import decode_artifact, extract_artifact_url
@@ -100,9 +100,9 @@ class _FalGatewayNodeBase:
         # pick", with any payload extras (e.g. OpenRouter `model` param)
         # baked into the CatalogEntry itself. Other categories use the live
         # fal model list with provider-prefixed display strings.
-        if registries.has_curated_catalog(cls.CATEGORY_FILTER):
+        if catalogs.has_curated_catalog(cls.CATEGORY_FILTER):
             live = model_registry.filter_models(cls.CATEGORY_FILTER)
-            ids = registries.list_display_names(cls.CATEGORY_FILTER, live) or [
+            ids = catalogs.list_display_names(cls.CATEGORY_FILTER, live) or [
                 "<no models available>"
             ]
         else:
@@ -144,9 +144,9 @@ class _FalGatewayNodeBase:
 
         category = type(self).CATEGORY_FILTER
         catalog_entry = None
-        if registries.has_curated_catalog(category):
+        if catalogs.has_curated_catalog(category):
             live = model_registry.filter_models(category)
-            catalog_entry = registries.resolve(category, model_id, live)
+            catalog_entry = catalogs.resolve(category, model_id, live)
             if catalog_entry is None:
                 raise RuntimeError(
                     f"unknown {category} catalog entry: {model_id!r}"

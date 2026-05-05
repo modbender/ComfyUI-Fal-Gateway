@@ -9,7 +9,7 @@ own row, plus any direct fal LLM endpoints we want to feature.
 
 Adding a model = one entry in `CURATED`. Adding a direct fal LLM (e.g.
 Bytedance Seed, Nemotron) is unnecessary — they're auto-merged from the
-live fal catalog by `registries.build_catalog` UNLESS their endpoint_id
+live fal catalog by `catalogs.build_catalog` UNLESS their endpoint_id
 appears in `HIDDEN_ENDPOINTS`.
 
 `HIDDEN_ENDPOINTS` exists to suppress the protocol routers themselves

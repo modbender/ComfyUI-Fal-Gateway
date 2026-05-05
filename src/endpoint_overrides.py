@@ -7,7 +7,7 @@ contract before submission.
 OpenRouter chat-completions and responses are protocol-level routers
 that take an OpenAI-shaped body. The user-facing model selection is
 NOT a widget anymore — it's a row in the curated T2T catalog
-(`src/registries/t2t.py`) that injects `extra_payload={"model": "..."}`
+(`src/catalogs/t2t.py`) that injects `extra_payload={"model": "..."}`
 into the request before the transformer runs. The transformer only
 needs to wrap `{prompt, system_prompt}` into the right shape for the
 endpoint:
