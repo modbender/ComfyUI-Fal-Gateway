@@ -46,6 +46,7 @@ class ModelEntry:
     shape: str  # "text_only" | "single_image" | "flf" | "multi_ref"
     description: str = ""
     widgets: list[WidgetSpec] = field(default_factory=list)
+    input_modalities: list[str] = field(default_factory=lambda: ["text"])
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +56,7 @@ class ModelEntry:
             "shape": self.shape,
             "description": self.description,
             "widgets": [w.to_dict() for w in self.widgets],
+            "input_modalities": list(self.input_modalities),
         }
 
     @classmethod
@@ -67,4 +69,5 @@ class ModelEntry:
             shape=data["shape"],
             description=data.get("description", ""),
             widgets=widgets,
+            input_modalities=list(data.get("input_modalities") or ["text"]),
         )

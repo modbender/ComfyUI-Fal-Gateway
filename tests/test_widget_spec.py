@@ -64,3 +64,38 @@ def test_to_dict_excludes_pricing_fields():
     assert "unit_price" not in d
     assert "unit" not in d
     assert "currency" not in d
+
+
+def test_model_entry_default_input_modalities_is_text_only():
+    entry = ModelEntry(
+        id="fal-ai/foo",
+        display_name="Foo",
+        category="text-to-image",
+        shape="text_only",
+    )
+    assert entry.input_modalities == ["text"]
+
+
+def test_model_entry_input_modalities_round_trip():
+    entry = ModelEntry(
+        id="fal-ai/bar",
+        display_name="Bar",
+        category="vision",
+        shape="single_image",
+        input_modalities=["text", "image"],
+    )
+    restored = ModelEntry.from_dict(entry.to_dict())
+    assert restored.input_modalities == ["text", "image"]
+
+
+def test_model_entry_from_dict_back_compat_when_field_missing():
+    """Old cached entries without input_modalities should default to ['text']."""
+    raw = {
+        "id": "fal-ai/legacy",
+        "display_name": "Legacy",
+        "category": "llm",
+        "shape": "text_only",
+        # no input_modalities key
+    }
+    entry = ModelEntry.from_dict(raw)
+    assert entry.input_modalities == ["text"]
