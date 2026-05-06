@@ -11,6 +11,7 @@ on the next ComfyUI restart. Last bumps:
   2 → 3: added llm + vision categories (v0.3.0)
   3 → 4: added pricing fields (unit_price/unit/currency on ModelEntry)
   4 → 5: extracted pricing into separate cache/pricing.json
+  5 → 6: added input_modalities field on ModelEntry
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ FALLBACK_PATH = _PKG_ROOT / "data" / "fallback_catalog.json"
 CACHE_PATH = _PKG_ROOT.parent / "cache" / "catalog.json"
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def load_fallback() -> list[ModelEntry]:
