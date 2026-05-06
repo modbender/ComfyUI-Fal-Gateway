@@ -7,6 +7,8 @@ set), sorted for type-ahead consistency.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from src import catalogs
 from src.catalogs import i2t, t2t
 from src.widget_spec import ModelEntry
@@ -106,9 +108,40 @@ def test_build_catalog_unknown_category_returns_only_live_entries():
 # ---- I2T catalog ----------------------------------------------------------
 
 
-def test_i2t_curated_is_empty():
-    """Vision endpoints are mostly direct; no curation needed beyond hiding."""
-    assert i2t.CURATED == []
+def test_i2t_curated_built_from_openrouter_cache():
+    """When openrouter cache has vision models, CURATED includes them."""
+    cached = [
+        {"id": "anthropic/claude-sonnet-4.5", "name": "Claude Sonnet 4.5",
+         "input_modalities": ["text", "image"], "description": ""},
+        {"id": "google/gemini-2.5-pro", "name": "Gemini 2.5 Pro",
+         "input_modalities": ["text", "image"], "description": ""},
+    ]
+    with patch("src.catalogs.i2t._load_openrouter_models", return_value=cached):
+        curated = i2t._build_curated()
+    ids_by_display = {e.display_name: e.extra_payload.get("model") for e in curated}
+    assert ids_by_display.get("[Anthropic] Claude Sonnet 4.5") == "anthropic/claude-sonnet-4.5"
+    assert ids_by_display.get("[Google] Gemini 2.5 Pro") == "google/gemini-2.5-pro"
+    assert all(e.endpoint_id == "openrouter/router/vision" for e in curated)
+    assert all(e.provider in ("anthropic", "google") for e in curated)
+
+
+def test_i2t_curated_is_empty_when_openrouter_cache_empty():
+    with patch("src.catalogs.i2t._load_openrouter_models", return_value=[]):
+        assert i2t._build_curated() == []
+
+
+def test_i2t_curated_filters_non_vision_models_defensively():
+    """Even if cache somehow contains a text-only model, filter it out."""
+    cached = [
+        {"id": "anthropic/claude-sonnet-4.5", "name": "Claude Sonnet 4.5",
+         "input_modalities": ["text", "image"], "description": ""},
+        {"id": "deepseek/deepseek-v3", "name": "DeepSeek V3",
+         "input_modalities": ["text"], "description": ""},
+    ]
+    with patch("src.catalogs.i2t._load_openrouter_models", return_value=cached):
+        curated = i2t._build_curated()
+    assert len(curated) == 1
+    assert curated[0].extra_payload["model"] == "anthropic/claude-sonnet-4.5"
 
 
 def test_i2t_hides_nsfw_classifiers():
