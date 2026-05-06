@@ -22,12 +22,13 @@ This gateway uses **fal's own OpenAPI schemas** to render widgets dynamically. C
 | `Fal Reference-to-Image` | IP-Adapter / subject-reference / multi-ref image models | IMAGE, STRING, STRING |
 | `Fal Upscale` | Real-ESRGAN, Clarity Upscaler, Crystal Upscaler (auto-detected) | IMAGE, STRING, STRING |
 | `Fal Text-to-Text` | Claude Sonnet 4.5, GPT-5, Gemini 2.5 Pro, Llama 3.3, DeepSeek R1, Grok, Qwen, Mistral — 30+ via OpenRouter, plus direct fal LLMs (Bytedance Seed, Nemotron) | STRING (response), STRING (info) |
-| `Fal Image-to-Text` | Moondream, LLaVA, Florence-2, Sa2VA, Isaac (vision LLMs only — NSFW filters / OCR / detection variants are auto-filtered) | STRING (response), STRING (info) |
+| `Fal Image-to-Text` | Flat curated list combining fal-direct vision endpoints (Florence-2, Moondream, Sa2VA, etc.) with OpenRouter vision-capable LLMs (Claude, Gemini, GPT-4o, Grok, Llama-Vision, Pixtral, Qwen-VL, ...). OpenRouter list is auto-detected from `https://openrouter.ai/api/v1/models` filtered by `architecture.input_modalities` containing `"image"` — new vision models surface automatically, no code change required. Vision-only: NSFW filters / OCR / detection variants auto-filtered. | STRING (response), STRING (info) |
 
 ### What's smart about the dropdowns
 
 - **Video / image / upscale nodes** — populated live from fal's catalog. Restart-free refresh via right-click → "Fal-Gateway: refresh catalog cache". Display strings format as `[provider] DisplayName`, type-ahead clusters families together (`kling`, `seedance`, `veo`).
-- **T2T / I2T nodes** — flat curated list. Pick `[Anthropic] Claude Sonnet 4.5` once, no second model picker. Behind the scenes it routes through `openrouter/router/openai/v1/chat/completions` with the model parameter injected. Direct fal LLMs (Bytedance Seed, Nemotron) auto-merge in. NSFW classifiers, OCR sub-paths, embedding endpoints, batch variants etc. are filtered out.
+- **T2T node** — flat curated list. Pick `[Anthropic] Claude Sonnet 4.5` once, no second model picker. Behind the scenes it routes through `openrouter/router/openai/v1/chat/completions` with the model parameter injected. Direct fal LLMs (Bytedance Seed, Nemotron) auto-merge in. NSFW classifiers, OCR sub-paths, embedding endpoints, batch variants etc. are filtered out.
+- **I2T node** — flat curated list combining fal-direct vision endpoints with OpenRouter vision-capable LLMs (auto-detected, no code change needed). Dispatch via `openrouter/router/vision` with model id injected. Vision-only variants are filtered out.
 
 ### Cost-per-run badge
 
