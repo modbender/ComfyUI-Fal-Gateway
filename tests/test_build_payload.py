@@ -11,10 +11,13 @@ Image-input handling is exercised via the M3 integration suite.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from src.overrides import apply_payload_transformer
 from src.nodes.base import _FalGatewayNodeBase
+from src.nodes.i2t import FalGatewayI2T
 from src.widget_spec import ModelEntry, WidgetSpec
 
 
@@ -271,12 +274,6 @@ async def test_build_payload_no_transform_for_other_endpoints(node):
 # their image parameter under OpenAPI property names like "image_url" /
 # "image_urls", not "image". The static ComfyUI socket is always named "image",
 # so kwargs["image"] holds the tensor. _build_payload must bridge the gap.
-
-
-from unittest.mock import AsyncMock, patch
-
-from src.nodes.i2t import FalGatewayI2T
-from src.widget_spec import ModelEntry, WidgetSpec
 
 
 async def test_i2t_maps_static_image_socket_to_widget_named_image_url():

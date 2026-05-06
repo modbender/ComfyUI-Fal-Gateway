@@ -227,7 +227,9 @@ class _FalGatewayNodeBase:
         # entry widgets pull positionally from declared static sockets.
         image_widgets = [w for w in entry.widgets if w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY")]
         cls = type(self)
-        static_socket_names = list(cls.image_socket_names()) + list(cls.optional_image_socket_names())
+        static_socket_names = (
+            list(cls.image_socket_names()) + list(cls.optional_image_socket_names())
+        )
         # Static sockets actually wired by ComfyUI (have a tensor in kwargs)
         wired_static = [n for n in static_socket_names if kwargs.get(n) is not None]
         unused_static = list(wired_static)
