@@ -221,17 +221,33 @@ class _FalGatewayNodeBase:
             # want to send it at the canonical key.
             payload["prompt"] = prompt
 
-        # 2. Image sockets: upload tensors → URLs at each widget's payload_key
-        for w in entry.widgets:
-            if w.kind not in ("IMAGE_INPUT", "IMAGE_ARRAY"):
-                continue
+        # 2. Image inputs: map kwargs (keyed by static socket names like
+        # "image", "image_1") onto entry.widgets (keyed by OpenAPI property
+        # names like "image_url", "image_urls"). Named match wins; unmatched
+        # entry widgets pull positionally from declared static sockets.
+        image_widgets = [w for w in entry.widgets if w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY")]
+        cls = type(self)
+        static_socket_names = list(cls.image_socket_names()) + list(cls.optional_image_socket_names())
+        # Static sockets actually wired by ComfyUI (have a tensor in kwargs)
+        wired_static = [n for n in static_socket_names if kwargs.get(n) is not None]
+        unused_static = list(wired_static)
+
+        for w in image_widgets:
             tensor = kwargs.get(w.name)
+            if tensor is None and unused_static:
+                # No exact name match — pull the next wired static socket.
+                tensor = kwargs[unused_static.pop(0)]
+            elif tensor is not None and w.name in unused_static:
+                unused_static.remove(w.name)
             if tensor is None:
                 if w.required:
                     raise RuntimeError(f"required image input {w.name!r} not connected")
                 continue
             url = await upload_tensor_image(tensor)
-            payload[w.fal_key] = url
+            if w.kind == "IMAGE_ARRAY":
+                payload[w.fal_key] = [url]
+            else:
+                payload[w.fal_key] = url
 
         # 3. Non-image widgets — M1 uses WidgetSpec defaults; M4 will read from kwargs once
         #    the frontend renders these widgets dynamically.

@@ -263,3 +263,62 @@ async def test_build_payload_no_transform_for_other_endpoints(node):
     payload = await node._build_payload(entry, "test prompt", {})
     assert payload == {"prompt": "test prompt"}
     assert "messages" not in payload
+
+
+# ---- I2T image socket plumbing -------------------------------------------
+#
+# Live-fetched vision models (Florence-2, Moondream, OpenRouter Vision) expose
+# their image parameter under OpenAPI property names like "image_url" /
+# "image_urls", not "image". The static ComfyUI socket is always named "image",
+# so kwargs["image"] holds the tensor. _build_payload must bridge the gap.
+
+
+from unittest.mock import AsyncMock, patch
+
+from src.nodes.i2t import FalGatewayI2T
+from src.widget_spec import ModelEntry, WidgetSpec
+
+
+async def test_i2t_maps_static_image_socket_to_widget_named_image_url():
+    """Florence-2-shaped entry: widget name='image_url', static socket='image'.
+    Tensor must reach payload at fal_key='image_url'."""
+    entry = ModelEntry(
+        id="fal-ai/florence-2-large/detailed-caption",
+        display_name="Florence-2 Large",
+        category="vision",
+        shape="single_image",
+        widgets=[
+            WidgetSpec(name="image_url", kind="IMAGE_INPUT", required=True,
+                       payload_key="image_url"),
+        ],
+        input_modalities=["text", "image"],
+    )
+    fake_tensor = object()
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.media/uploaded.png")):
+        node = FalGatewayI2T()
+        payload = await node._build_payload(entry, prompt="describe", kwargs={"image": fake_tensor})
+    assert payload["image_url"] == "https://fal.media/uploaded.png"
+
+
+async def test_i2t_image_array_widget_gets_list_not_bare_url():
+    """openrouter/router/vision shape: IMAGE_ARRAY widget at fal_key='image_urls'.
+    Payload must hold a LIST of URLs."""
+    entry = ModelEntry(
+        id="openrouter/router/vision",
+        display_name="OpenRouter Vision",
+        category="vision",
+        shape="multi_ref",
+        widgets=[
+            WidgetSpec(name="image_urls", kind="IMAGE_ARRAY", required=True,
+                       payload_key="image_urls"),
+            WidgetSpec(name="prompt", kind="STRING", payload_key="prompt"),
+        ],
+        input_modalities=["text", "image"],
+    )
+    fake_tensor = object()
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.media/uploaded.png")):
+        node = FalGatewayI2T()
+        payload = await node._build_payload(entry, prompt="describe", kwargs={"image": fake_tensor})
+    assert payload["image_urls"] == ["https://fal.media/uploaded.png"]
