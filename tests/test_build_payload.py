@@ -319,3 +319,36 @@ async def test_i2t_image_array_widget_gets_list_not_bare_url():
         node = FalGatewayI2T()
         payload = await node._build_payload(entry, prompt="describe", kwargs={"image": fake_tensor})
     assert payload["image_urls"] == ["https://fal.media/uploaded.png"]
+
+
+# ---- I2T OpenRouter vision catalog integration --------------------------
+#
+# Tasks 5-7 unified OpenRouter vision dispatch: fetch models → synthesize
+# CatalogEntry rows with endpoint_id="openrouter/router/vision" and
+# extra_payload={"model": "<id>"}. This integration test locks in the full
+# path: fake cache → _build_curated() → catalog resolve → correct entry shape.
+
+
+def test_i2t_openrouter_vision_e2e_payload(monkeypatch):
+    """End-to-end: I2T catalog row '[Anthropic] Claude Sonnet 4.5' resolves
+    to a CatalogEntry pointing at openrouter/router/vision with the right
+    extra_payload — locks in Tasks 5-7 working together end-to-end."""
+    from src.catalogs import i2t
+    from src import catalogs as catalogs_pkg
+
+    fake_or_models = [{
+        "id": "anthropic/claude-sonnet-4.5",
+        "name": "Claude Sonnet 4.5",
+        "input_modalities": ["text", "image"],
+        "description": "",
+    }]
+    monkeypatch.setattr(i2t, "_load_openrouter_models", lambda: fake_or_models)
+    new_curated = i2t._build_curated()
+    monkeypatch.setitem(catalogs_pkg._CATEGORY_CURATED, "vision", new_curated)
+
+    # Empty live list isolates the test to the curated path.
+    entry = catalogs_pkg.resolve("vision", "[Anthropic] Claude Sonnet 4.5", [])
+    assert entry is not None
+    assert entry.endpoint_id == "openrouter/router/vision"
+    assert entry.extra_payload == {"model": "anthropic/claude-sonnet-4.5"}
+    assert entry.provider == "anthropic"
