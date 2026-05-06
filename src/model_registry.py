@@ -78,6 +78,20 @@ def _shape_from_category(category: str) -> str:
     return _CATEGORY_CONFIG.get(category, {}).get("shape", "text_only")
 
 
+def _derive_input_modalities(widgets: list[WidgetSpec]) -> list[str]:
+    """Infer the input modality set from a model's widget list.
+
+    Every model in the catalog accepts text (prompt/system_prompt). Image
+    modality is added when the schema declares any IMAGE_INPUT or IMAGE_ARRAY
+    widget — that's how we surface fal-direct vision endpoints in I2T without
+    a hand-maintained list.
+    """
+    modalities = ["text"]
+    if any(w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY") for w in widgets):
+        modalities.append("image")
+    return modalities
+
+
 def _entry_from_raw(raw: dict[str, Any]) -> ModelEntry | None:
     endpoint_id = raw.get("endpoint_id")
     if not endpoint_id:
@@ -117,6 +131,7 @@ def _entry_from_raw(raw: dict[str, Any]) -> ModelEntry | None:
         shape=shape,
         description=str(description),
         widgets=widgets,
+        input_modalities=_derive_input_modalities(widgets),
     )
 
 

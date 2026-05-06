@@ -78,3 +78,68 @@ def test_llm_does_not_exclude_general_chat_models():
 # into the curated T2T catalog (`src/catalogs/t2t.py`). The previous
 # test for endpoint-level widget overrides in `_entry_from_raw` is gone.
 # Catalog round-trip lives in `tests/test_catalogs.py`.
+
+
+# ---- input_modalities derivation -----------------------------------------------
+
+
+def test_entry_from_raw_with_image_widget_gets_image_modality():
+    raw = {
+        "endpoint_id": "fal-ai/florence-2-large/detailed-caption",
+        "metadata": {
+            "category": "vision",
+            "display_name": "Florence-2 Large",
+            "status": "active",
+        },
+        "openapi": _minimal_openapi_with_image_url(),
+    }
+    entry = _entry_from_raw(raw)
+    assert entry is not None
+    assert "image" in entry.input_modalities
+    assert "text" in entry.input_modalities
+
+
+def test_entry_from_raw_text_only_model_gets_text_only_modality():
+    raw = {
+        "endpoint_id": "fal-ai/some-llm",
+        "metadata": {
+            "category": "llm",
+            "display_name": "Some LLM",
+            "status": "active",
+        },
+        # no openapi → synthesized widgets, llm category → no image widget
+    }
+    entry = _entry_from_raw(raw)
+    assert entry is not None
+    assert entry.input_modalities == ["text"]
+
+
+def _minimal_openapi_with_image_url() -> dict:
+    """Smallest valid OpenAPI doc with one image_url property."""
+    return {
+        "paths": {
+            "/": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {"$ref": "#/components/schemas/Input"}
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "Input": {
+                    "type": "object",
+                    "properties": {
+                        "image_url": {"type": "string", "_fal_ui_field": "image"},
+                        "prompt": {"type": "string"},
+                    },
+                    "required": ["image_url"],
+                }
+            }
+        },
+    }
