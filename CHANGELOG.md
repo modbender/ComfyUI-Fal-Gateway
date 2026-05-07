@@ -2,6 +2,23 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.1](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.0...v0.3.1) (2026-05-07)
+
+
+### Features
+
+* **t2t,i2t:** structured JSON output via schema widget + JSONExtract ([0b50f9d](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/0b50f9db9b036fa523a9b90322e74956ef332640))
+
+
+### Bug Fixes
+
+* **json_mode:** don't fabricate system_prompt for fal-direct endpoints ([b8fff5c](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/b8fff5c945b44df514c762f5ebd6806778f559e9))
+
+
+### Documentation
+
+* structured JSON output for T2T/I2T + JSONExtract usage ([4b79d8f](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/4b79d8f0da27c68358148776e6f04889fe40fb2c))
+
 ## [0.3.0](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.2.0...v0.3.0) (2026-05-07)
 
 
