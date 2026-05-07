@@ -105,5 +105,12 @@ def apply_schema_to_payload(payload: dict[str, Any], endpoint_id: str) -> dict[s
         if rf is not None:
             out["response_format"] = rf
 
-    out["system_prompt"] = augment_system_prompt(out.get("system_prompt", "") or "", fields)
+    # Augment system_prompt only when the endpoint accepts that field — i.e.
+    # whitelisted OpenRouter routers, OR an upstream layer already populated
+    # one. Fabricating system_prompt for fal-direct endpoints (Florence-2,
+    # Moondream, Bytedance Seed) risks request-validation failures since
+    # their OpenAPI schemas don't declare it.
+    existing_system_prompt = out.get("system_prompt")
+    if endpoint_id in _RESPONSE_FORMAT_ENDPOINTS or existing_system_prompt:
+        out["system_prompt"] = augment_system_prompt(existing_system_prompt or "", fields)
     return out

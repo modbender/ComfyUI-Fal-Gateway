@@ -18,6 +18,7 @@ from typing import Any
 class FalGatewayJsonExtract:
     CATEGORY = "Fal-Gateway"
     FUNCTION = "execute"
+    OUTPUT_NODE = False
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("value",)
 

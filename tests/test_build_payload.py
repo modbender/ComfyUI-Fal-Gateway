@@ -426,6 +426,22 @@ async def test_i2t_schema_with_openrouter_vision_endpoint_yields_response_format
     assert final["image_urls"] == ["https://fal.media/img.png"]
 
 
+async def test_t2t_schema_with_fal_direct_llm_drops_schema_and_doesnt_synthesize_system_prompt(node):
+    """Bytedance Seed / Nemotron-style fal-direct LLMs auto-merge into T2T but
+    don't support response_format. Schema must be popped AND system_prompt
+    must NOT be fabricated — those endpoints' OpenAPI schemas don't accept it."""
+    payload = await FalGatewayT2T()._build_payload(
+        None,
+        "ad copy",
+        {"system_prompt": "", "schema": "title, tagline"},
+    )
+    payload = {**payload, "model": "bytedance-seed-v1"}
+    final = apply_schema_to_payload(payload, "fal-ai/bytedance-seed/v1")
+    assert "schema" not in final
+    assert "response_format" not in final
+    assert "system_prompt" not in final
+
+
 async def test_i2t_schema_with_fal_direct_endpoint_drops_schema_silently():
     """Florence-2 doesn't support response_format. The schema kwarg must be
     popped (so it doesn't ship to fal as an unknown field) and no
@@ -453,4 +469,7 @@ async def test_i2t_schema_with_fal_direct_endpoint_drops_schema_silently():
 
     assert "schema" not in final
     assert "response_format" not in final
+    assert "system_prompt" not in final, (
+        "Florence-2 doesn't accept system_prompt; must not be fabricated"
+    )
     assert final["image_url"] == "https://fal.media/img.png"

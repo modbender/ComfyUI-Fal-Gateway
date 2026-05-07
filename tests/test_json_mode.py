@@ -125,12 +125,31 @@ def test_apply_schema_to_payload_vision_endpoint_injects_response_format():
 
 def test_apply_schema_to_payload_fal_direct_drops_schema_no_response_format():
     """Florence-2 etc. don't support response_format. We pop schema (so it
-    doesn't ship to fal as an unknown field) but DO still augment system_prompt
-    as a best-effort prompt-side instruction for endpoints that have one."""
+    doesn't ship to fal as an unknown field) and do NOT synthesize a
+    system_prompt either — these endpoints don't accept that field, and
+    fabricating it risks request-validation failures."""
     payload = {"prompt": "describe", "schema": "species, mood"}
     out = apply_schema_to_payload(payload, FAL_DIRECT_ENDPOINT)
     assert "schema" not in out
     assert "response_format" not in out
+    assert "system_prompt" not in out, (
+        "must not fabricate system_prompt for endpoints that don't accept it"
+    )
+
+
+def test_apply_schema_to_payload_fal_direct_with_existing_system_prompt_still_augments():
+    """If the user (or upstream code) already supplied a system_prompt for a
+    fal-direct endpoint, augmenting is fine — we're not creating an unexpected
+    field, just appending to one that's already in flight."""
+    payload = {
+        "prompt": "describe",
+        "system_prompt": "Be terse.",
+        "schema": "species, mood",
+    }
+    out = apply_schema_to_payload(payload, FAL_DIRECT_ENDPOINT)
+    assert "system_prompt" in out
+    assert "Be terse." in out["system_prompt"]
+    assert "species" in out["system_prompt"]
 
 
 def test_apply_schema_to_payload_augments_system_prompt_on_supported_endpoint():

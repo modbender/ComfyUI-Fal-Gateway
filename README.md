@@ -44,7 +44,7 @@ response: {"flux_ref_prompt": "...", "motion_prompt": "...", "title": "...", "de
 
 Fan it out with the included **`Fal-Gateway: JSON Extract`** node — `(json_string, key) → value`. One extract per field, one node graph, fully autonomous pipeline.
 
-JSON mode dispatches through OpenRouter (`openrouter/router/openai/v1/chat/completions` for T2T; `openrouter/router/vision` for I2T) and works with any model that supports structured outputs — Claude Sonnet 4.5+, Gemini 2.5, GPT-4o+, Grok, most open-source models. fal-direct vision endpoints (Florence-2, Moondream, etc.) silently ignore the schema since they don't honor `response_format`.
+JSON mode dispatches through OpenRouter (`openrouter/router/openai/v1/chat/completions` for T2T; `openrouter/router/vision` for I2T) and works with most models that support strict structured outputs — Claude Sonnet 4.5+, Gemini 2.5, GPT-4o+, Grok, and many open-source models. Older or smaller variants (Claude 3 Haiku, Llama 3.1 8B, Mistral Small) may not strictly honor the schema; the system-prompt instruction is sent as a fallback hint, but you should set a `default` value on each `JSONExtract` to circuit-break when a field is missing. fal-direct vision endpoints (Florence-2, Moondream, etc.) silently ignore the schema since they don't honor `response_format`.
 
 ### Cost-per-run badge
 
