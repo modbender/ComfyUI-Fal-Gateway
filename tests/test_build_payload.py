@@ -352,3 +352,105 @@ def test_i2t_openrouter_vision_e2e_payload(monkeypatch):
     assert entry.endpoint_id == "openrouter/router/vision"
     assert entry.extra_payload == {"model": "anthropic/claude-sonnet-4.5"}
     assert entry.provider == "anthropic"
+
+
+# ---- Schema-mode (JSON output) wire-up ----------------------------------
+#
+# `schema` is a static widget on T2T/I2T (added via extra_required_widgets).
+# It flows: kwargs → _build_payload pass-through → apply_schema_to_payload
+# (which pops it and injects response_format for supported endpoints).
+# These tests verify the full wire is intact end-to-end.
+
+
+from src.json_mode import apply_schema_to_payload  # noqa: E402
+from src.nodes.t2t import FalGatewayT2T  # noqa: E402
+
+
+CHAT_ENDPOINT = "openrouter/router/openai/v1/chat/completions"
+VISION_ENDPOINT = "openrouter/router/vision"
+FAL_DIRECT_FLORENCE = "fal-ai/florence-2-large/detailed-caption"
+
+
+async def test_t2t_schema_kwarg_yields_response_format_in_final_payload(node):
+    """T2T + chat-completions: schema → response_format reaches the body fal sees."""
+    # T2T uses catalog-driven dispatch (entry=None at this layer)
+    payload = await FalGatewayT2T()._build_payload(
+        None,
+        "ad copy please",
+        {"system_prompt": "You are concise.", "schema": "title, tagline, cta"},
+    )
+    # Catalog merge would add model id; simulate that step inline.
+    payload = {**payload, "model": "anthropic/claude-sonnet-4.5"}
+    payload = apply_schema_to_payload(payload, CHAT_ENDPOINT)
+    final = apply_payload_transformer(CHAT_ENDPOINT, payload)
+
+    assert "schema" not in final, "raw schema kwarg should not ship to fal"
+    assert "response_format" in final
+    assert final["response_format"]["json_schema"]["schema"]["required"] == [
+        "title", "tagline", "cta",
+    ]
+    # Augmented system_prompt becomes the system message in the chat shape
+    sys_msg = next(m for m in final["messages"] if m["role"] == "system")
+    assert "title" in sys_msg["content"] and "JSON" in sys_msg["content"]
+
+
+async def test_i2t_schema_with_openrouter_vision_endpoint_yields_response_format():
+    """I2T + openrouter/router/vision: schema → response_format end-to-end."""
+    entry = ModelEntry(
+        id=VISION_ENDPOINT,
+        display_name="OpenRouter Vision",
+        category="vision",
+        shape="multi_ref",
+        widgets=[
+            WidgetSpec(name="image_urls", kind="IMAGE_ARRAY", required=True,
+                       payload_key="image_urls"),
+            WidgetSpec(name="prompt", kind="STRING", payload_key="prompt"),
+        ],
+        input_modalities=["text", "image"],
+    )
+    fake_tensor = object()
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.media/img.png")):
+        payload = await FalGatewayI2T()._build_payload(
+            entry,
+            prompt="describe the animal",
+            kwargs={"image": fake_tensor, "schema": "species, mood"},
+        )
+    payload = {**payload, "model": "anthropic/claude-sonnet-4.5"}
+    final = apply_schema_to_payload(payload, VISION_ENDPOINT)
+
+    assert "schema" not in final
+    assert final["response_format"]["json_schema"]["schema"]["required"] == [
+        "species", "mood",
+    ]
+    assert final["image_urls"] == ["https://fal.media/img.png"]
+
+
+async def test_i2t_schema_with_fal_direct_endpoint_drops_schema_silently():
+    """Florence-2 doesn't support response_format. The schema kwarg must be
+    popped (so it doesn't ship to fal as an unknown field) and no
+    response_format added."""
+    entry = ModelEntry(
+        id=FAL_DIRECT_FLORENCE,
+        display_name="Florence-2 Large",
+        category="vision",
+        shape="single_image",
+        widgets=[
+            WidgetSpec(name="image_url", kind="IMAGE_INPUT", required=True,
+                       payload_key="image_url"),
+        ],
+        input_modalities=["text", "image"],
+    )
+    fake_tensor = object()
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.media/img.png")):
+        payload = await FalGatewayI2T()._build_payload(
+            entry,
+            prompt="describe",
+            kwargs={"image": fake_tensor, "schema": "species, mood"},
+        )
+    final = apply_schema_to_payload(payload, FAL_DIRECT_FLORENCE)
+
+    assert "schema" not in final
+    assert "response_format" not in final
+    assert final["image_url"] == "https://fal.media/img.png"

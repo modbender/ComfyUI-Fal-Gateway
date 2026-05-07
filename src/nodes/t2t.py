@@ -19,6 +19,9 @@ class FalGatewayT2T(_FalGatewayNodeBase):
         # accepts it (chat-completions → role:system message; responses →
         # `instructions`) drops it cleanly when empty. Static widget on the
         # node so users don't need to add it via custom workflow tweaks.
+        # `schema` (empty by default) toggles JSON output mode — see
+        # `src/json_mode.py` and pair with FalGatewayJsonExtract downstream.
         return {
             "system_prompt": ("STRING", {"default": "", "multiline": True}),
+            "schema": ("STRING", {"default": "", "multiline": True}),
         }

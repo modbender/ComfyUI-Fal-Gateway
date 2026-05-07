@@ -18,6 +18,7 @@ import logging
 from typing import Any, ClassVar
 
 from .. import catalogs, model_registry
+from ..json_mode import apply_schema_to_payload
 from ..overrides import apply_payload_transformer
 from ..fal.config import default_config
 from ..fal.decoder import decode_artifact, extract_artifact_url
@@ -167,6 +168,10 @@ class _FalGatewayNodeBase:
             # Catalog `extra_payload` wins over user-set widget values for
             # the same key — the curated row is authoritative.
             payload = {**payload, **catalog_entry.extra_payload}
+        # Schema-mode toggle: when the user filled a `schema` widget on a
+        # T2T/I2T node, convert it to OpenRouter's `response_format` here
+        # (silently dropped for endpoints that don't support it).
+        payload = apply_schema_to_payload(payload, endpoint_id)
         # Endpoint-specific payload reshape (e.g. OpenAI chat-completions
         # expects {messages: [{role, content}]} not flat {prompt}).
         payload = apply_payload_transformer(endpoint_id, payload)

@@ -20,17 +20,19 @@ try:
     from .upscale import FalGatewayUpscale
     from .t2t import FalGatewayT2T
     from .i2t import FalGatewayI2T
+    from .json_extract import FalGatewayJsonExtract
 
     _NODES: tuple[tuple[str, type, str], ...] = (
-        ("FalGatewayT2V",     FalGatewayT2V,     "Fal Text-to-Video"),
-        ("FalGatewayI2V",     FalGatewayI2V,     "Fal Image-to-Video"),
-        ("FalGatewayRef2V",   FalGatewayRef2V,   "Fal Reference-to-Video"),
-        ("FalGatewayT2I",     FalGatewayT2I,     "Fal Text-to-Image"),
-        ("FalGatewayI2I",     FalGatewayI2I,     "Fal Image-to-Image"),
-        ("FalGatewayRef2I",   FalGatewayRef2I,   "Fal Reference-to-Image"),
-        ("FalGatewayUpscale", FalGatewayUpscale, "Fal Upscale"),
-        ("FalGatewayT2T",     FalGatewayT2T,     "Fal Text-to-Text"),
-        ("FalGatewayI2T",     FalGatewayI2T,     "Fal Image-to-Text"),
+        ("FalGatewayT2V",         FalGatewayT2V,         "Fal Text-to-Video"),
+        ("FalGatewayI2V",         FalGatewayI2V,         "Fal Image-to-Video"),
+        ("FalGatewayRef2V",       FalGatewayRef2V,       "Fal Reference-to-Video"),
+        ("FalGatewayT2I",         FalGatewayT2I,         "Fal Text-to-Image"),
+        ("FalGatewayI2I",         FalGatewayI2I,         "Fal Image-to-Image"),
+        ("FalGatewayRef2I",       FalGatewayRef2I,       "Fal Reference-to-Image"),
+        ("FalGatewayUpscale",     FalGatewayUpscale,     "Fal Upscale"),
+        ("FalGatewayT2T",         FalGatewayT2T,         "Fal Text-to-Text"),
+        ("FalGatewayI2T",         FalGatewayI2T,         "Fal Image-to-Text"),
+        ("FalGatewayJsonExtract", FalGatewayJsonExtract, "Fal-Gateway: JSON Extract"),
     )
 
     NODE_CLASS_MAPPINGS = {key: cls for key, cls, _name in _NODES}
