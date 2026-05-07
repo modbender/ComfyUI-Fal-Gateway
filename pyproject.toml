@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-fal-gateway"
 version = "0.3.0"
-description = "Schema-driven ComfyUI gateway for fal.ai — seven unified nodes covering text/image/reference-to-video AND text/image/reference-to-image AND upscale, all auto-populating from fal's model catalog. New fal models appear in the dropdown automatically; no per-model code required."
+description = "Schema-driven ComfyUI gateway for fal.ai — nine unified nodes covering text/image/reference-to-video, text/image/reference-to-image, upscale, plus T2T and I2T. Auto-populates from fal's model catalog (and OpenRouter's vision-capable LLMs for I2T). New models appear in the dropdown automatically — no per-model code required."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -46,7 +46,7 @@ exclude = ["tests*", "examples*", "cache*"]
 "src.data" = ["*.json"]
 
 [tool.comfy]
-PublisherId = ""
+PublisherId = "modbender"
 DisplayName = "Fal-Gateway"
 Icon = ""
 
