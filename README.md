@@ -21,14 +21,30 @@ This gateway uses **fal's own OpenAPI schemas** to render widgets dynamically. C
 | `Fal Image-to-Image` | Style transfer, img2img variants, Flux fill | IMAGE, STRING, STRING |
 | `Fal Reference-to-Image` | IP-Adapter / subject-reference / multi-ref image models | IMAGE, STRING, STRING |
 | `Fal Upscale` | Real-ESRGAN, Clarity Upscaler, Crystal Upscaler (auto-detected) | IMAGE, STRING, STRING |
-| `Fal Text-to-Text` | Claude Sonnet 4.5, GPT-5, Gemini 2.5 Pro, Llama 3.3, DeepSeek R1, Grok, Qwen, Mistral — 30+ via OpenRouter, plus direct fal LLMs (Bytedance Seed, Nemotron) | STRING (response), STRING (info) |
-| `Fal Image-to-Text` | Flat curated list combining fal-direct vision endpoints (Florence-2, Moondream, Sa2VA, etc.) with OpenRouter vision-capable LLMs (Claude, Gemini, GPT-4o, Grok, Llama-Vision, Pixtral, Qwen-VL, ...). OpenRouter list is auto-detected from `https://openrouter.ai/api/v1/models` filtered by `architecture.input_modalities` containing `"image"` — new vision models surface automatically, no code change required. Vision-only: NSFW filters / OCR / detection variants auto-filtered. | STRING (response), STRING (info) |
+| `Fal Text-to-Text` | Claude Sonnet 4.5, GPT-5, Gemini 2.5 Pro, Llama 3.3, DeepSeek R1, Grok, Qwen, Mistral — 30+ via OpenRouter, plus direct fal LLMs (Bytedance Seed, Nemotron). Optional `schema` widget switches the response into structured JSON (see below). | STRING (response), STRING (info) |
+| `Fal Image-to-Text` | Flat curated list combining fal-direct vision endpoints (Florence-2, Moondream, Sa2VA, etc.) with OpenRouter vision-capable LLMs (Claude, Gemini, GPT-4o, Grok, Llama-Vision, Pixtral, Qwen-VL, ...). OpenRouter list is auto-detected from `https://openrouter.ai/api/v1/models` filtered by `architecture.input_modalities` containing `"image"` — new vision models surface automatically, no code change required. Vision-only: NSFW filters / OCR / detection variants auto-filtered. Optional `schema` widget switches the response into structured JSON (see below). | STRING (response), STRING (info) |
+| `Fal-Gateway: JSON Extract` | Companion to T2T/I2T schema mode. `(json_string, key, default) → value`. Generic — works with any upstream JSON STRING. | STRING (value) |
 
 ### What's smart about the dropdowns
 
 - **Video / image / upscale nodes** — populated live from fal's catalog. Restart-free refresh via right-click → "Fal-Gateway: refresh catalog cache". Display strings format as `[provider] DisplayName`, type-ahead clusters families together (`kling`, `seedance`, `veo`).
 - **T2T node** — flat curated list. Pick `[Anthropic] Claude Sonnet 4.5` once, no second model picker. Behind the scenes it routes through `openrouter/router/openai/v1/chat/completions` with the model parameter injected. Direct fal LLMs (Bytedance Seed, Nemotron) auto-merge in. NSFW classifiers, OCR sub-paths, embedding endpoints, batch variants etc. are filtered out.
 - **I2T node** — flat curated list combining fal-direct vision endpoints with OpenRouter vision-capable LLMs (auto-detected, no code change needed). Dispatch via `openrouter/router/vision` with model id injected. Vision-only variants are filtered out.
+
+### Structured JSON output (T2T / I2T)
+
+Both `Fal Text-to-Text` and `Fal Image-to-Text` have a `schema` widget. Empty by default → free-form text response (current behavior, no change). Fill it with a comma-separated field list → the response becomes a JSON object keyed by those fields, enforced via OpenRouter's `response_format: json_schema` (strict mode).
+
+Example: one Claude call → five named outputs.
+
+```
+schema:  flux_ref_prompt, motion_prompt, title, description, tags
+response: {"flux_ref_prompt": "...", "motion_prompt": "...", "title": "...", "description": "...", "tags": "..."}
+```
+
+Fan it out with the included **`Fal-Gateway: JSON Extract`** node — `(json_string, key) → value`. One extract per field, one node graph, fully autonomous pipeline.
+
+JSON mode dispatches through OpenRouter (`openrouter/router/openai/v1/chat/completions` for T2T; `openrouter/router/vision` for I2T) and works with any model that supports structured outputs — Claude Sonnet 4.5+, Gemini 2.5, GPT-4o+, Grok, most open-source models. fal-direct vision endpoints (Florence-2, Moondream, etc.) silently ignore the schema since they don't honor `response_format`.
 
 ### Cost-per-run badge
 
