@@ -2,6 +2,13 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.2](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.1...v0.3.2) (2026-05-08)
+
+
+### Bug Fixes
+
+* **init:** expose NODE_CLASS_MAPPINGS for the Comfy Registry indexer ([0126a25](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/0126a2564e34433e6e76a9251781aed6f149f140))
+
 ## [0.3.1](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.0...v0.3.1) (2026-05-07)
 
 
