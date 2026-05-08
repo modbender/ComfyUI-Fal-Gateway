@@ -71,3 +71,62 @@ def test_init_imports_register_routes():
         "__init__.py must call register_routes() to wire /fal_gateway/* HTTP routes. "
         "Without this the schema endpoint, refresh menu, and pricing fetch break."
     )
+
+
+# ---- Registry-indexer compatibility -------------------------------------
+#
+# The Comfy Registry indexer (registry.comfy.org) imports the package
+# without ComfyUI present and reads NODE_CLASS_MAPPINGS to build its
+# search index. If the import is gated behind ComfyUI's `server` module,
+# the registry sees zero nodes — the package shows up but has no
+# "Nodes matched: …" line on its detail page (verified empirically:
+# 0.3.1 published with the gated import → registry showed no node list).
+
+
+import sys  # noqa: E402
+import importlib.util  # noqa: E402
+
+
+def _import_package_without_server() -> object:
+    """Load __init__.py with ComfyUI's `server` module blocked, mimicking
+    what the registry indexer does in its sandboxed import."""
+
+    class _BlockServer:
+        def find_module(self, name, path=None):
+            if name == "server" or name.startswith("server."):
+                raise ImportError("server blocked for test")
+
+    blocker = _BlockServer()
+    sys.meta_path.insert(0, blocker)
+    mod_name = "fal_gateway_under_test"
+    if mod_name in sys.modules:
+        del sys.modules[mod_name]
+    spec = importlib.util.spec_from_file_location(
+        mod_name,
+        _INIT_PATH,
+        submodule_search_locations=[str(_INIT_PATH.parent)],
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.meta_path.remove(blocker)
+    return mod
+
+
+def test_node_class_mappings_populated_without_comfyui_server():
+    """Without ComfyUI's `server` module the package still exposes its
+    full node list. Critical for registry indexer + linters/packagers."""
+    mod = _import_package_without_server()
+    assert len(mod.NODE_CLASS_MAPPINGS) >= 10, (
+        f"registry must see at least 10 nodes; got {list(mod.NODE_CLASS_MAPPINGS.keys())}"
+    )
+    for expected in ("FalGatewayT2V", "FalGatewayT2T", "FalGatewayI2T", "FalGatewayJsonExtract"):
+        assert expected in mod.NODE_CLASS_MAPPINGS, f"{expected} missing"
+
+
+def test_display_names_match_class_keys_without_server():
+    mod = _import_package_without_server()
+    assert set(mod.NODE_CLASS_MAPPINGS.keys()) == set(mod.NODE_DISPLAY_NAME_MAPPINGS.keys())
