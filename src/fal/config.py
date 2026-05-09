@@ -24,7 +24,12 @@ PLACEHOLDER = "<your_fal_api_key_here>"
 
 
 def _default_config_path() -> str:
-    return str(Path(__file__).resolve().parent.parent / "config.ini")
+    # Don't .resolve() — on Windows installs that symlink custom_nodes/<pkg>
+    # into a WSL repo, resolve() rewrites the path to a \\wsl.localhost\... UNC
+    # that Windows often can't read, so the config.ini lookup misses. Keeping
+    # the symlinked path lets Windows read through the symlink it already used
+    # to load this module.
+    return str(Path(__file__).parent.parent / "config.ini")
 
 
 class FalConfig:
