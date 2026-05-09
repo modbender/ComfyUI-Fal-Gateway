@@ -276,6 +276,11 @@ class _FalGatewayNodeBase:
                 continue
             payload[k] = v
 
-        # 4. Endpoint-specific payload reshape (e.g. OpenAI chat-completions
-        #    expects {messages: [{role, content}]} not flat {prompt}).
-        return apply_payload_transformer(entry.id, payload)
+        # NOTE: do NOT call apply_payload_transformer here. The transformer
+        # runs exactly once in execute(), AFTER catalog extra_payload merge
+        # and apply_schema_to_payload. Calling it here as well caused a
+        # double-transform that wiped out the user's system+user prompt
+        # whenever schema mode was active (the second call rebuilt messages
+        # from only the schema-augmented system_prompt). See
+        # tests/test_build_payload.py::test_t2t_runtime_path_with_live_chat_entry_preserves_user_prompts.
+        return payload

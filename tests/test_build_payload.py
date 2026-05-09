@@ -394,6 +394,114 @@ async def test_t2t_schema_kwarg_yields_response_format_in_final_payload(node):
     assert "title" in sys_msg["content"] and "JSON" in sys_msg["content"]
 
 
+async def test_t2t_runtime_path_with_live_chat_entry_preserves_user_prompts():
+    """REGRESSION: at runtime the live registry exposes
+    `openrouter/router/openai/v1/chat/completions` as a ModelEntry (with a
+    `prompt` widget), so execute()'s `entry = model_registry.get(...)` is
+    non-None. _build_payload took the entry-is-not-None branch and called
+    the chat transformer internally — then execute() called it AGAIN after
+    apply_schema_to_payload. The second call clobbered the messages array
+    that already held the user's system+user prompt with messages built only
+    from the schema-augmented system_prompt, dropping the user's content.
+
+    Symptom in the wild: T2T+schema returns generic LLM output unrelated to
+    the user's system/user prompt.
+
+    This test mirrors execute() exactly with a live-shaped chat entry."""
+    chat_entry = ModelEntry(
+        id="openrouter/router/openai/v1/chat/completions",
+        display_name="OpenRouter Chat Completions",
+        category="llm",
+        shape="text_only",
+        widgets=[WidgetSpec(name="prompt", kind="STRING", payload_key="prompt")],
+    )
+    user_system = "You are the creative director for Ferocine."
+    user_prompt = "Invent one fresh clip concept."
+    payload = await FalGatewayT2T()._build_payload(
+        chat_entry,
+        user_prompt,
+        {"system_prompt": user_system, "schema": "title, tagline, cta"},
+    )
+    # execute() then merges catalog extra_payload, applies schema, transforms.
+    payload = {**payload, "model": "anthropic/claude-sonnet-4.5"}
+    payload = apply_schema_to_payload(payload, CHAT_ENDPOINT)
+    final = apply_payload_transformer(CHAT_ENDPOINT, payload)
+
+    assert "messages" in final, "transformer must wrap into chat messages shape"
+    roles = [m["role"] for m in final["messages"]]
+    assert "user" in roles, (
+        f"USER message dropped — model never saw the user prompt. "
+        f"messages={final['messages']}"
+    )
+    user_msg = next(m for m in final["messages"] if m["role"] == "user")
+    assert user_msg["content"] == user_prompt
+    sys_msg = next(m for m in final["messages"] if m["role"] == "system")
+    # Original system content must survive AND be augmented with JSON instruction.
+    assert user_system in sys_msg["content"], (
+        f"USER's system_prompt dropped — model only sees JSON instruction. "
+        f"system content={sys_msg['content']!r}"
+    )
+    assert "title" in sys_msg["content"] and "JSON" in sys_msg["content"]
+    assert final["response_format"]["json_schema"]["schema"]["required"] == [
+        "title", "tagline", "cta",
+    ]
+
+
+async def test_i2t_runtime_path_with_live_vision_entry_schema_produces_correct_payload():
+    """REGRESSION counterpart to the T2T test: simulate execute()'s actual
+    runtime path for I2T + openrouter/router/vision + schema. The vision
+    endpoint accepts a FLAT shape (prompt, system_prompt, image_urls, model),
+    has no transformer registered, and natively supports `system_prompt`.
+
+    This test pins:
+      1. image socket → image_urls list mapping
+      2. schema → response_format injection
+      3. system_prompt augmented with the JSON instruction
+      4. user's text prompt preserved
+      5. nothing leaks the raw `schema` key
+      6. _build_payload no longer eats the prompt via a now-removed
+         internal transformer call
+    """
+    vision_entry = ModelEntry(
+        id=VISION_ENDPOINT,
+        display_name="OpenRouter Vision",
+        category="vision",
+        shape="multi_ref",
+        widgets=[
+            WidgetSpec(name="image_urls", kind="IMAGE_ARRAY", required=True,
+                       payload_key="image_urls"),
+            WidgetSpec(name="prompt", kind="STRING", required=True,
+                       payload_key="prompt"),
+            WidgetSpec(name="system_prompt", kind="STRING", default="",
+                       payload_key="system_prompt"),
+            WidgetSpec(name="model", kind="STRING", default="",
+                       payload_key="model"),
+        ],
+        input_modalities=["text", "image"],
+    )
+    fake_tensor = object()
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.media/img.png")):
+        payload = await FalGatewayI2T()._build_payload(
+            vision_entry,
+            prompt="describe this animal",
+            kwargs={"image": fake_tensor, "schema": "species, mood"},
+        )
+    payload = {**payload, "model": "anthropic/claude-sonnet-4.5"}
+    payload = apply_schema_to_payload(payload, VISION_ENDPOINT)
+    final = apply_payload_transformer(VISION_ENDPOINT, payload)
+
+    assert final["prompt"] == "describe this animal"
+    assert final["image_urls"] == ["https://fal.media/img.png"]
+    assert final["model"] == "anthropic/claude-sonnet-4.5"
+    assert "schema" not in final
+    assert final["response_format"]["json_schema"]["schema"]["required"] == [
+        "species", "mood",
+    ]
+    assert "Output STRICT JSON" in final["system_prompt"]
+    assert "species" in final["system_prompt"]
+
+
 async def test_i2t_schema_with_openrouter_vision_endpoint_yields_response_format():
     """I2T + openrouter/router/vision: schema → response_format end-to-end."""
     entry = ModelEntry(
