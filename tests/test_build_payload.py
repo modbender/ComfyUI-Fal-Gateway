@@ -447,6 +447,55 @@ async def test_t2t_runtime_path_with_live_chat_entry_preserves_user_prompts():
     ]
 
 
+async def test_i2t_user_system_prompt_combines_with_schema_augmentation():
+    """User-supplied `system_prompt` on I2T (newly exposed widget) must:
+      1. survive end-to-end into payload['system_prompt']
+      2. get the JSON instruction appended (not replaced) when schema is set
+    The vision endpoint natively supports system_prompt — same pattern as T2T."""
+    vision_entry = ModelEntry(
+        id=VISION_ENDPOINT,
+        display_name="OpenRouter Vision",
+        category="vision",
+        shape="multi_ref",
+        widgets=[
+            WidgetSpec(name="image_urls", kind="IMAGE_ARRAY", required=True,
+                       payload_key="image_urls"),
+            WidgetSpec(name="prompt", kind="STRING", required=True,
+                       payload_key="prompt"),
+            WidgetSpec(name="system_prompt", kind="STRING", default="",
+                       payload_key="system_prompt"),
+            WidgetSpec(name="model", kind="STRING", default="",
+                       payload_key="model"),
+        ],
+        input_modalities=["text", "image"],
+    )
+    fake_tensor = object()
+    user_sys = "You are an expert wildlife photographer."
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.media/img.png")):
+        payload = await FalGatewayI2T()._build_payload(
+            vision_entry,
+            prompt="describe lighting and composition",
+            kwargs={
+                "image": fake_tensor,
+                "system_prompt": user_sys,
+                "schema": "subject, composition, lighting",
+            },
+        )
+    payload = {**payload, "model": "anthropic/claude-sonnet-4.5"}
+    payload = apply_schema_to_payload(payload, VISION_ENDPOINT)
+    final = apply_payload_transformer(VISION_ENDPOINT, payload)
+
+    assert user_sys in final["system_prompt"]
+    assert "Output STRICT JSON" in final["system_prompt"]
+    assert "composition" in final["system_prompt"]
+    assert final["response_format"]["json_schema"]["schema"]["required"] == [
+        "subject", "composition", "lighting",
+    ]
+    assert final["prompt"] == "describe lighting and composition"
+    assert final["image_urls"] == ["https://fal.media/img.png"]
+
+
 async def test_i2t_runtime_path_with_live_vision_entry_schema_produces_correct_payload():
     """REGRESSION counterpart to the T2T test: simulate execute()'s actual
     runtime path for I2T + openrouter/router/vision + schema. The vision

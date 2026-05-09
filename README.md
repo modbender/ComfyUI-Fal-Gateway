@@ -102,9 +102,11 @@ All nine nodes appear under category `Fal-Gateway` in the "Add Node" menu.
 - Output: STRING response + info JSON.
 
 ### Vision (image captioning) example
-- Drop `Fal Image-to-Text`, wire a `LoadImage` → `image`, pick `[fal-ai] Moondream2`.
-- Type your question/instruction in `prompt` ("describe this image"), Queue.
+- Drop `Fal Image-to-Text`, wire a `LoadImage` → `image`, pick `[fal-ai] Moondream2` or any of the 100+ OpenRouter vision models (`[Anthropic] Claude Sonnet 4.5`, `[OpenAI] GPT-4o`, `[Google] Gemini 2.5 Pro`, etc.).
+- Type your question/instruction in `prompt` ("describe this image"); optionally set a `system_prompt` ("you are an expert wildlife photographer evaluating composition") to steer the model. Queue.
 - Output: STRING caption + info JSON.
+
+> Note: `system_prompt` is honored natively by OpenRouter vision models. Fal-direct endpoints (Florence-2, Moondream, SA2VA, etc.) ignore the field — leave it empty for those.
 
 See [`examples/workflows/`](examples/workflows/) for drop-in templates:
 - `seedance_pro_i2v.json` — image-to-video

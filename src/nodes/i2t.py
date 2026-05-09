@@ -19,11 +19,17 @@ class FalGatewayI2T(_FalGatewayNodeBase):
 
     @classmethod
     def extra_required_widgets(cls) -> dict[str, Any]:
+        # `system_prompt` is natively supported by `openrouter/router/vision`
+        # (Claude/Gemini/GPT-4o, etc.); fal-direct vision endpoints
+        # (Florence-2, Moondream) ignore unknown fields, so wiring it as a
+        # universal widget is safe. Mirrors T2T for parity — the same
+        # "instruct the model" capability across both nodes.
         # `schema` (empty by default) toggles JSON output mode — see
         # `src/json_mode.py`. Only honored when dispatching through
-        # `openrouter/router/vision` (Claude/Gemini/GPT-4o, etc.); fal-direct
-        # vision endpoints (Florence-2, Moondream) silently drop it. Pair with
-        # FalGatewayJsonExtract downstream to fan the JSON out by key.
+        # `openrouter/router/vision`; fal-direct vision endpoints silently
+        # drop it. Pair with FalGatewayJsonExtract downstream to fan the
+        # JSON out by key.
         return {
+            "system_prompt": ("STRING", {"default": "", "multiline": True}),
             "schema": ("STRING", {"default": "", "multiline": True}),
         }
