@@ -87,98 +87,50 @@ app.registerExtension({
   },
 });
 
-// JSON Extract (Multiple): R2V-style +/- counter (`key_count`) drives both
-// (a) which `key_N` text widgets are visible and (b) how many output sockets
-// are exposed. Each `key_N` widget's value also names the matching output.
-// Python declares all key_1..key_MAX_OUTPUTS in INPUT_TYPES so the values
-// serialize/restore cleanly; we just hide the rows past key_count here.
+// JSON Extract (Multiple): single multiline `keys` textarea drives N output
+// sockets, each named after the matching parsed key. Earlier attempts at
+// per-row key_N widgets + a key_count counter ran into a LiteGraph layout
+// dead-end (computeSize sets rows = max(inputs, outputs) and stacks widgets
+// BELOW the slot strip — there's no clean way to align widgets with their
+// output rows without writing custom canvas-drawn row widgets like rgthree's
+// Power LoRA Loader). Single textarea sidesteps all of that.
 // MUST stay in sync with FalGatewayJsonExtractMany.MAX_OUTPUTS.
 const JSON_EXTRACT_MANY_NODE = "FalGatewayJsonExtractMany";
 const MAX_JSON_EXTRACT_OUTPUTS = 10;
 
-function findKeyWidget(node, i) {
-  return node.widgets?.find((w) => w && w.name === `key_${i}`);
+function parseJsonExtractKeys(value) {
+  if (typeof value !== "string" || !value) return [];
+  return value
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0)
+    .slice(0, MAX_JSON_EXTRACT_OUTPUTS);
 }
 
-function setKeyWidgetVisible(widget, visible) {
-  // Real "hide a ComfyUI widget" trick. Setting widget.type = "hidden" and
-  // widget.computeSize = () => [0, -4] is NOT enough — the widget's `draw`
-  // method is bound at creation time and ignores the type swap, so the row
-  // keeps rendering. We have to override `draw` too, plus stash originals
-  // so visibility can be restored without recreating the widget (which
-  // would lose its serialized value).
-  if (!widget) return;
-  if (visible) {
-    if (widget.__falKeyHidden) {
-      widget.type = widget.__falKeyOrigType;
-      widget.computeSize = widget.__falKeyOrigComputeSize;
-      widget.draw = widget.__falKeyOrigDraw;
-      delete widget.__falKeyHidden;
-      delete widget.__falKeyOrigType;
-      delete widget.__falKeyOrigComputeSize;
-      delete widget.__falKeyOrigDraw;
-    }
-    return;
-  }
-  if (widget.__falKeyHidden) return;
-  widget.__falKeyHidden = true;
-  widget.__falKeyOrigType = widget.type;
-  widget.__falKeyOrigComputeSize = widget.computeSize;
-  widget.__falKeyOrigDraw = widget.draw;
-  widget.type = "hidden";
-  widget.computeSize = () => [0, -4];
-  widget.draw = () => {};
-}
-
-// NOTE: an earlier attempt patched node.computeSize + node.getConnectionPos
-// to render input/output sockets along the bottom edge of the node (under
-// the widget stack). It broke the visible sockets entirely: getConnectionPos
-// only repositions wire endpoints, while LiteGraph draws the actual socket
-// dots from drawNodeShape using internal slot-Y math that ignores the
-// override. The dots vanished into invisible coordinates while wires
-// pointed at empty canvas. Reverted; sockets stay top-anchored.
-//
-// The widget-hide fix above (widget.draw = () => {}) is the genuine
-// improvement — collapsing key_2..key_N when key_count drops removes the
-// huge dead band the user originally reported. Layout flip would require
-// hooking the node draw pipeline (drawNodeShape / onDrawForeground) which
-// is materially more fragile across ComfyUI versions; deferring.
-
-function renameJsonExtractOutput(node, idx, keyValue) {
-  if (!node.outputs || !node.outputs[idx]) return;
-  const desired = (keyValue || "").trim() || `value_${idx + 1}`;
-  if (node.outputs[idx].name === desired) return;
-  node.outputs[idx].name = desired;
-  node.outputs[idx].label = desired;
-  if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
-}
-
-function syncJsonExtractMany(node, count) {
-  const n = Math.max(
-    1,
-    Math.min(MAX_JSON_EXTRACT_OUTPUTS, Math.floor(count || 1)),
-  );
-
-  // 1. Hide / show key_N widgets to match key_count.
-  for (let i = 1; i <= MAX_JSON_EXTRACT_OUTPUTS; i++) {
-    setKeyWidgetVisible(findKeyWidget(node, i), i <= n);
-  }
-
-  // 2. Sync output socket count (high → low for trim so indices stay stable).
+function syncJsonExtractOutputs(node, keys) {
+  // Always show at least one output so the node is wireable while the user
+  // is mid-typing into an empty `keys` widget.
+  const targetCount = Math.max(1, keys.length);
   const current = node.outputs ? node.outputs.length : 0;
-  for (let i = current - 1; i >= n; i--) {
+
+  // Trim from the top; removeOutput drops any wired connection on the
+  // removed slot. Expected — the user shrunk the key list.
+  for (let i = current - 1; i >= targetCount; i--) {
     node.removeOutput(i);
   }
-  for (let i = current; i < n; i++) {
+  for (let i = current; i < targetCount; i++) {
     node.addOutput(`value_${i + 1}`, "STRING");
   }
-
-  // 3. Rename the now-visible outputs to mirror each key widget's value.
-  for (let i = 1; i <= n; i++) {
-    renameJsonExtractOutput(node, i - 1, findKeyWidget(node, i)?.value);
+  // Mirror the parsed key into each output's name+label. Falls back to
+  // value_N when no key (e.g. the always-on first slot during empty input).
+  for (let i = 0; i < targetCount; i++) {
+    const desired = keys[i] || `value_${i + 1}`;
+    if (node.outputs[i].name !== desired) {
+      node.outputs[i].name = desired;
+      node.outputs[i].label = desired;
+    }
   }
-
-  // 4. Grow-only resize so we don't shrink below the user's manual size.
+  // Grow-only resize so we don't shrink below the user's manual size.
   if (node.computeSize) {
     const min = node.computeSize();
     const cur = node.size || min;
@@ -189,34 +141,21 @@ function syncJsonExtractMany(node, count) {
   }
 }
 
-function patchKeyCountCallback(node) {
-  const w = node.widgets?.find((x) => x && x.name === "key_count");
+function getKeysWidget(node) {
+  return node.widgets?.find((w) => w && w.name === "keys");
+}
+
+function patchKeysCallback(node) {
+  const w = getKeysWidget(node);
   if (!w || w.__falJsonExtractPatched) return w;
   const orig = w.callback;
   w.callback = function (value, ...rest) {
     const r = orig?.call(this, value, ...rest);
-    syncJsonExtractMany(node, value);
+    syncJsonExtractOutputs(node, parseJsonExtractKeys(value));
     return r;
   };
   w.__falJsonExtractPatched = true;
   return w;
-}
-
-function patchKeyValueCallbacks(node) {
-  // Each key_N widget's callback must rename its corresponding output socket
-  // when the user types a new key name. Idempotent — flag prevents repatch.
-  for (let i = 1; i <= MAX_JSON_EXTRACT_OUTPUTS; i++) {
-    const w = findKeyWidget(node, i);
-    if (!w || w.__falKeyValuePatched) continue;
-    const orig = w.callback;
-    const idx = i - 1;
-    w.callback = function (value, ...rest) {
-      const r = orig?.call(this, value, ...rest);
-      renameJsonExtractOutput(node, idx, value);
-      return r;
-    };
-    w.__falKeyValuePatched = true;
-  }
 }
 
 app.registerExtension({
@@ -227,21 +166,17 @@ app.registerExtension({
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
-      const cw = patchKeyCountCallback(this);
-      patchKeyValueCallbacks(this);
-      // Fresh node: trim widgets+outputs to default key_count (1).
-      if (cw) syncJsonExtractMany(this, cw.value);
+      const w = patchKeysCallback(this);
+      if (w) syncJsonExtractOutputs(this, parseJsonExtractKeys(w.value));
       return r;
     };
 
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function (...args) {
       const r = onConfigure?.apply(this, args);
-      // Restored workflow: widget values already loaded; resync visibility +
-      // outputs so the node looks the way it was saved.
-      const cw = patchKeyCountCallback(this);
-      patchKeyValueCallbacks(this);
-      if (cw) syncJsonExtractMany(this, cw.value);
+      // Restored workflow: widget value already loaded; resync outputs.
+      const w = patchKeysCallback(this);
+      if (w) syncJsonExtractOutputs(this, parseJsonExtractKeys(w.value));
       return r;
     };
   },

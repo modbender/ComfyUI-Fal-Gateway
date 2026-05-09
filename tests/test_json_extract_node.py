@@ -73,21 +73,23 @@ def test_node_metadata_shape():
 
 # ---- FalGatewayJsonExtractMany ------------------------------------------
 #
-# R2V-style multi-key fan-out. `key_count` (INT, +/-) drives both how many
-# `key_N` widgets are visible (JS) and how many output sockets show up.
-# Each `key_N` is a single-line STRING widget the user types one key into.
-# Python returns exactly MAX_OUTPUTS values; trailing slots are empty.
+# Single multiline `keys` textarea (comma-separated). N output sockets
+# named after the parsed keys, count auto-syncs as the user edits the
+# textarea. Python returns exactly MAX_OUTPUTS values; slots past
+# len(parsed_keys) get the `default` value.
+#
+# Why textarea instead of per-row widgets: LiteGraph's computeSize hard-
+# codes rows = max(inputs, outputs) and stacks widgets BELOW the slot
+# strip — per-row widgets create an unfixable layout mismatch (left
+# column has visible widgets, right column has output dots, no way to
+# align them without writing custom canvas-drawn row widgets the way
+# rgthree's Power LoRA Loader does — significantly more code, fragile
+# across LG versions). One textarea sidesteps the whole layout fight.
 
 
-def _execute_many(
-    json_string: str,
-    key_count: int,
-    *,
-    default: str = "",
-    **keys: str,
-) -> tuple[str, ...]:
+def _execute_many(json_string: str, keys: str, default: str = "") -> tuple[str, ...]:
     return FalGatewayJsonExtractMany().execute(
-        json_string=json_string, key_count=key_count, default=default, **keys,
+        json_string=json_string, keys=keys, default=default,
     )
 
 
@@ -97,11 +99,7 @@ def test_many_extracts_in_key_order_and_pads_to_max():
         "title": "Run Free", "tagline": "speed", "cta": "Buy",
         "audience": "runners", "tone": "energetic",
     })
-    out = _execute_many(
-        payload, 5,
-        key_1="title", key_2="tagline", key_3="cta",
-        key_4="audience", key_5="tone",
-    )
+    out = _execute_many(payload, "title, tagline, cta, audience, tone")
     assert len(out) == FalGatewayJsonExtractMany.MAX_OUTPUTS
     assert out[:5] == ("Run Free", "speed", "Buy", "runners", "energetic")
     assert out[5:] == ("",) * (FalGatewayJsonExtractMany.MAX_OUTPUTS - 5)
@@ -110,93 +108,52 @@ def test_many_extracts_in_key_order_and_pads_to_max():
 def test_many_uses_default_per_missing_key():
     """Per-key default applied independently — present keys still come through."""
     payload = json.dumps({"title": "x"})
-    out = _execute_many(
-        payload, 3,
-        key_1="title", key_2="tagline", key_3="cta",
-        default="MISSING",
-    )
+    out = _execute_many(payload, "title, tagline, cta", default="MISSING")
     assert out[:3] == ("x", "MISSING", "MISSING")
 
 
 def test_many_handles_malformed_json_with_default_for_every_key():
     """Parse failure → every requested key gets the default."""
-    out = _execute_many(
-        "{not json", 3,
-        key_1="a", key_2="b", key_3="c",
-        default="X",
-    )
+    out = _execute_many("{not json", "a, b, c", default="X")
     assert out[:3] == ("X", "X", "X")
 
 
-def test_many_strips_whitespace_per_key_widget():
-    """Per-key whitespace stripped — '  title  ' resolves to 'title'."""
-    payload = json.dumps({"title": "x", "tagline": "y"})
-    out = _execute_many(
-        payload, 2,
-        key_1="  title  ", key_2="tagline",
-    )
-    assert out[:2] == ("x", "y")
+def test_many_strips_whitespace_and_drops_empty_segments():
+    """`'  a , , b ,'` → keys ['a', 'b']. Empty segments between commas
+    are dropped so a stray comma doesn't create a phantom output slot."""
+    payload = json.dumps({"a": "1", "b": "2"})
+    out = _execute_many(payload, "  a , , b ,")
+    assert out[:2] == ("1", "2")
+    assert out[2] == ""
 
 
-def test_many_empty_key_widget_returns_default_for_that_slot():
-    """An empty `key_N` (user hasn't typed anything yet) returns the default
-    for that slot — the other slots still resolve normally."""
-    payload = json.dumps({"title": "x", "cta": "z"})
-    out = _execute_many(
-        payload, 3,
-        key_1="title", key_2="", key_3="cta",
-        default="-",
-    )
-    assert out[:3] == ("x", "-", "z")
-
-
-def test_many_clamps_key_count_into_valid_range():
-    """key_count = 0 → treat as 1; key_count > MAX → clamp to MAX. Belt and
-    braces against stale workflow JSON or hand-edits."""
-    payload = json.dumps({"a": "v"})
-    # 0 → 1
-    out = _execute_many(payload, 0, key_1="a")
-    assert out[0] == "v"
-    # Way over MAX → clamped, but extra key_N widgets still ignored beyond MAX
-    keys_kw = {f"key_{i}": f"k{i}" for i in range(1, 21)}
-    payload_full = json.dumps({f"k{i}": f"v{i}" for i in range(1, 21)})
-    out = _execute_many(payload_full, 999, **keys_kw)
+def test_many_caps_at_max_outputs():
+    """More keys than MAX_OUTPUTS → silently drop the overflow."""
+    keys = ", ".join(f"k{i}" for i in range(20))
+    payload = json.dumps({f"k{i}": f"v{i}" for i in range(20)})
+    out = _execute_many(payload, keys)
     assert len(out) == FalGatewayJsonExtractMany.MAX_OUTPUTS
-    expected = tuple(f"v{i}" for i in range(1, FalGatewayJsonExtractMany.MAX_OUTPUTS + 1))
-    assert out == expected
-
-
-def test_many_only_evaluates_keys_up_to_key_count():
-    """Widgets beyond key_count are ignored even if the user typed values
-    into them earlier (stays consistent with what's visible in the UI)."""
-    payload = json.dumps({"a": "1", "b": "2", "c": "3"})
-    out = _execute_many(
-        payload, 1,
-        key_1="a", key_2="b", key_3="c",  # b and c set but key_count=1
-    )
-    assert out[0] == "1"
-    assert out[1:] == ("",) * (FalGatewayJsonExtractMany.MAX_OUTPUTS - 1)
+    assert out == tuple(f"v{i}" for i in range(FalGatewayJsonExtractMany.MAX_OUTPUTS))
 
 
 def test_many_coerces_non_string_values():
     """Same coercion rules as Single — int/float/bool stringified, dict/list
     serialized as JSON."""
     payload = json.dumps({"n": 7, "f": 0.25, "b": False, "obj": {"x": 1}})
-    out = _execute_many(
-        payload, 4,
-        key_1="n", key_2="f", key_3="b", key_4="obj",
-    )
+    out = _execute_many(payload, "n, f, b, obj")
     assert out[:4] == ("7", "0.25", "False", '{"x": 1}')
 
 
 def test_many_null_value_uses_default():
     payload = json.dumps({"title": None, "tagline": "ok"})
-    out = _execute_many(
-        payload, 2,
-        key_1="title", key_2="tagline",
-        default="N/A",
-    )
+    out = _execute_many(payload, "title, tagline", default="N/A")
     assert out[:2] == ("N/A", "ok")
+
+
+def test_many_empty_keys_returns_all_padding():
+    """No keys at all → every output slot is the empty string. Not an error."""
+    out = _execute_many('{"a": 1}', "")
+    assert out == ("",) * FalGatewayJsonExtractMany.MAX_OUTPUTS
 
 
 def test_many_node_metadata_shape():
@@ -204,8 +161,8 @@ def test_many_node_metadata_shape():
     The JS extension relies on this contract — if MAX_OUTPUTS bumps here, it
     must bump in fal_gateway.js too. This test is the canary.
 
-    Also pins the input-types shape: key_count INT widget with +/- range,
-    plus key_1..key_MAX_OUTPUTS single-line STRING widgets."""
+    Also pins the input-types shape: a single multiline `keys` STRING widget.
+    """
     cls = FalGatewayJsonExtractMany
     assert cls.MAX_OUTPUTS == 10
     assert len(cls.RETURN_TYPES) == cls.MAX_OUTPUTS
@@ -217,21 +174,8 @@ def test_many_node_metadata_shape():
 
     spec = cls.INPUT_TYPES()
     assert "json_string" in spec["required"]
+    assert "keys" in spec["required"]
     assert "default" in spec["optional"]
-
-    # key_count is an INT spinner with +/- arrows in the UI.
-    kc_type, kc_meta = spec["required"]["key_count"]
-    assert kc_type == "INT"
-    assert kc_meta["min"] == 1
-    assert kc_meta["max"] == cls.MAX_OUTPUTS
-    assert kc_meta["step"] == 1
-    assert kc_meta["default"] == 1
-
-    # All key_1..key_MAX_OUTPUTS declared as single-line STRING widgets so
-    # ComfyUI serializes/restores them across save+load cleanly.
-    for i in range(1, cls.MAX_OUTPUTS + 1):
-        key_name = f"key_{i}"
-        assert key_name in spec["required"], f"missing {key_name} in INPUT_TYPES"
-        kt, kmeta = spec["required"][key_name]
-        assert kt == "STRING"
-        assert kmeta.get("multiline") is False, f"{key_name} should be single-line"
+    keys_type, keys_meta = spec["required"]["keys"]
+    assert keys_type == "STRING"
+    assert keys_meta.get("multiline") is True, "keys widget should be a textarea"

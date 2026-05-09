@@ -24,7 +24,7 @@ This gateway uses **fal's own OpenAPI schemas** to render widgets dynamically. C
 | `Fal Text-to-Text` | Claude Sonnet 4.5, GPT-5, Gemini 2.5 Pro, Llama 3.3, DeepSeek R1, Grok, Qwen, Mistral — 30+ via OpenRouter, plus direct fal LLMs (Bytedance Seed, Nemotron). Optional `schema` widget switches the response into structured JSON (see below). | STRING (response), STRING (info) |
 | `Fal Image-to-Text` | Flat curated list combining fal-direct vision endpoints (Florence-2, Moondream, Sa2VA, etc.) with OpenRouter vision-capable LLMs (Claude, Gemini, GPT-4o, Grok, Llama-Vision, Pixtral, Qwen-VL, ...). OpenRouter list is auto-detected from `https://openrouter.ai/api/v1/models` filtered by `architecture.input_modalities` containing `"image"` — new vision models surface automatically, no code change required. Vision-only: NSFW filters / OCR / detection variants auto-filtered. Optional `schema` widget switches the response into structured JSON (see below). | STRING (response), STRING (info) |
 | `JSON Extract (Single)` | Companion to T2T/I2T schema mode. `(json_string, key, default) → value`. Drop one per field you want to extract. Generic — works with any upstream JSON STRING. | STRING (value) |
-| `JSON Extract (Multiple)` | Same idea, fan-out form. `key_count` +/- counter (1–10) sets how many `key_N` text rows are visible — one output socket per row, **named after that row's key**. Mirrors the Reference-to-Video / Reference-to-Image counter UX. | N × STRING (one per key) |
+| `JSON Extract (Multiple)` | Same idea, fan-out form. One multiline `keys` textarea (comma-separated, e.g. `title, tagline, cta`) → one output socket per parsed key, **named after that key**, count auto-syncs as you edit. Cap = 10. | N × STRING (one per key) |
 
 ### What's smart about the dropdowns
 
@@ -45,7 +45,7 @@ response: {"flux_ref_prompt": "...", "motion_prompt": "...", "title": "...", "de
 
 Fan it out two ways:
 
-- **`JSON Extract (Multiple)`** — dial `key_count` up/down (1–10), one row per key. Type `title` in `key_1` and the first output socket renames to `title`. One node, N typed connections, no copy-paste loop. Mirrors the Reference-to-Video counter UX.
+- **`JSON Extract (Multiple)`** — single multiline `keys` textarea, comma-separated. Type `title, tagline, cta` and three output sockets appear named exactly that. Count auto-syncs as you edit. Cap is 10 keys.
 - **`JSON Extract (Single)`** — older one-key-at-a-time form. Drop one per field. Useful when keys come from different upstream JSON sources, or when you want explicit per-field defaults.
 
 JSON mode dispatches through OpenRouter (`openrouter/router/openai/v1/chat/completions` for T2T; `openrouter/router/vision` for I2T) and works with most models that support strict structured outputs — Claude Sonnet 4.5+, Gemini 2.5, GPT-4o+, Grok, and many open-source models. Older or smaller variants (Claude 3 Haiku, Llama 3.1 8B, Mistral Small) may not strictly honor the schema; the system-prompt instruction is sent as a fallback hint, but you should set a `default` on the JSON Extract node to circuit-break when a field is missing. fal-direct vision endpoints (Florence-2, Moondream, etc.) silently ignore the schema since they don't honor `response_format`.
