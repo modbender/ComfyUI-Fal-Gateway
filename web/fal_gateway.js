@@ -101,26 +101,106 @@ function findKeyWidget(node, i) {
 }
 
 function setKeyWidgetVisible(widget, visible) {
-  // ComfyUI / LiteGraph hide trick: stash original type+computeSize, swap to
-  // a zero-height "hidden" type. Restoring puts the originals back so the
-  // widget renders normally again.
+  // Real "hide a ComfyUI widget" trick. Setting widget.type = "hidden" and
+  // widget.computeSize = () => [0, -4] is NOT enough — the widget's `draw`
+  // method is bound at creation time and ignores the type swap, so the row
+  // keeps rendering. We have to override `draw` too, plus stash originals
+  // so visibility can be restored without recreating the widget (which
+  // would lose its serialized value).
   if (!widget) return;
   if (visible) {
-    if (widget.__falKeyHiddenType !== undefined) {
-      widget.type = widget.__falKeyHiddenType;
-      widget.computeSize = widget.__falKeyHiddenComputeSize;
-      delete widget.__falKeyHiddenType;
-      delete widget.__falKeyHiddenComputeSize;
+    if (widget.__falKeyHidden) {
+      widget.type = widget.__falKeyOrigType;
+      widget.computeSize = widget.__falKeyOrigComputeSize;
+      widget.draw = widget.__falKeyOrigDraw;
+      delete widget.__falKeyHidden;
+      delete widget.__falKeyOrigType;
+      delete widget.__falKeyOrigComputeSize;
+      delete widget.__falKeyOrigDraw;
     }
     return;
   }
-  // Hide
-  if (widget.__falKeyHiddenType === undefined) {
-    widget.__falKeyHiddenType = widget.type;
-    widget.__falKeyHiddenComputeSize = widget.computeSize;
-  }
+  if (widget.__falKeyHidden) return;
+  widget.__falKeyHidden = true;
+  widget.__falKeyOrigType = widget.type;
+  widget.__falKeyOrigComputeSize = widget.computeSize;
+  widget.__falKeyOrigDraw = widget.draw;
   widget.type = "hidden";
   widget.computeSize = () => [0, -4];
+  widget.draw = () => {};
+}
+
+// Patch a JSON Extract (Multiple) node so both inputs (json_string) and
+// outputs (value_*) are drawn beneath the widget stack on the right/left
+// edges, instead of sharing the top with the title bar. This is what the
+// user asked for visually — widgets dominate the top, sockets line up at
+// the bottom of the node like an "outputs panel".
+//
+// Two LiteGraph hooks do the heavy lifting:
+//   computeSize: hide outputs+inputs from base layout so widgets pack to
+//     the top, then add socket-strip height back to the total.
+//   getConnectionPos: redirect each socket's draw + connection point to
+//     `<right_edge>, <bottom of widgets + slot offset>` (mirror for inputs
+//     on the left edge). Same x stays put; only y moves.
+function patchSocketsBelowWidgets(node) {
+  if (node.__falSocketsBelowPatched) return;
+  node.__falSocketsBelowPatched = true;
+
+  const slotH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_SLOT_HEIGHT) || 20;
+  const titleH =
+    (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) || 20;
+
+  const origComputeSize = node.computeSize;
+  node.computeSize = function (out) {
+    // Trick: hide our own input/output arrays from LG's base computeSize so
+    // the widget area packs starting right under the title — no reserved
+    // socket strip up top. Then we add the strip height back at the bottom.
+    const realInputs = this.inputs;
+    const realOutputs = this.outputs;
+    this.inputs = [];
+    this.outputs = [];
+    const base = origComputeSize?.call(this, out) || [200, 100];
+    this.inputs = realInputs;
+    this.outputs = realOutputs;
+
+    const stripRows = Math.max(realInputs?.length || 0, realOutputs?.length || 0);
+    const newH = base[1] + stripRows * slotH;
+    if (out) {
+      out[0] = base[0];
+      out[1] = newH;
+      return out;
+    }
+    return [base[0], newH];
+  };
+
+  const origGetConnectionPos = node.getConnectionPos;
+  node.getConnectionPos = function (isInput, slot_number, out) {
+    const slots = isInput ? this.inputs : this.outputs;
+    if (!slots || slots[slot_number] === undefined) {
+      return origGetConnectionPos?.call(this, isInput, slot_number, out);
+    }
+    const stripCount = slots.length;
+    const stripHeight = stripCount * slotH;
+    // Bottom-anchored: start the strip `stripHeight` from the node bottom,
+    // then offset by slot index. Half-slot extra centers the dot vertically.
+    const x = this.pos[0] + (isInput ? 0 : this.size[0]);
+    const y =
+      this.pos[1] +
+      this.size[1] -
+      stripHeight +
+      slot_number * slotH +
+      slotH * 0.5;
+    if (out) {
+      out[0] = x;
+      out[1] = y;
+      return out;
+    }
+    return [x, y];
+  };
+
+  // Suppress titleH unused warning — kept for future tweaks if we want to
+  // add a min-y guard so sockets never overlap the title on tiny nodes.
+  void titleH;
 }
 
 function renameJsonExtractOutput(node, idx, keyValue) {
@@ -206,6 +286,7 @@ app.registerExtension({
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
+      patchSocketsBelowWidgets(this);
       const cw = patchKeyCountCallback(this);
       patchKeyValueCallbacks(this);
       // Fresh node: trim widgets+outputs to default key_count (1).
@@ -216,6 +297,7 @@ app.registerExtension({
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function (...args) {
       const r = onConfigure?.apply(this, args);
+      patchSocketsBelowWidgets(this);
       // Restored workflow: widget values already loaded; resync visibility +
       // outputs so the node looks the way it was saved.
       const cw = patchKeyCountCallback(this);
