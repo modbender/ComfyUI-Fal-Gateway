@@ -87,6 +87,98 @@ app.registerExtension({
   },
 });
 
+// JSON Extract (Multiple): mirror the comma-separated `keys` widget value
+// onto the node's output sockets — one socket per key, named after the key.
+// Python's RETURN_TYPES is fixed at MAX_JSON_EXTRACT_OUTPUTS so the backend
+// always returns that many strings; we just hide the trailing ones in the
+// UI. MUST stay in sync with FalGatewayJsonExtractMany.MAX_OUTPUTS.
+const JSON_EXTRACT_MANY_NODE = "FalGatewayJsonExtractMany";
+const MAX_JSON_EXTRACT_OUTPUTS = 10;
+
+function parseJsonExtractKeys(value) {
+  if (typeof value !== "string" || !value) return [];
+  return value
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0)
+    .slice(0, MAX_JSON_EXTRACT_OUTPUTS);
+}
+
+function syncJsonExtractOutputs(node, keys) {
+  // At least one output is always shown — even empty `keys` keeps `value_1`
+  // visible so the node has something to wire into during initial setup.
+  const targetCount = Math.max(1, keys.length);
+  const current = node.outputs ? node.outputs.length : 0;
+
+  // Trim excess outputs, high → low so indices stay stable for survivors.
+  // removeOutput drops any wired connection on the removed slot — expected.
+  for (let i = current - 1; i >= targetCount; i--) {
+    node.removeOutput(i);
+  }
+  // Grow back if user added keys after a previous trim.
+  for (let i = current; i < targetCount; i++) {
+    node.addOutput(`value_${i + 1}`, "STRING");
+  }
+  // Rename to match the user's keys (or the default value_N when no key).
+  for (let i = 0; i < targetCount; i++) {
+    const desired = keys[i] || `value_${i + 1}`;
+    if (node.outputs[i].name !== desired) {
+      node.outputs[i].name = desired;
+      node.outputs[i].label = desired;
+    }
+  }
+  // Same grow-only resize policy as the Ref nodes — keep user's manual size.
+  if (node.computeSize) {
+    const min = node.computeSize();
+    const cur = node.size || min;
+    node.setSize([Math.max(cur[0], min[0]), Math.max(cur[1], min[1])]);
+  }
+  if (node.setDirtyCanvas) {
+    node.setDirtyCanvas(true, true);
+  }
+}
+
+function getKeysWidget(node) {
+  return node.widgets?.find((w) => w && w.name === "keys");
+}
+
+function ensureKeysCallback(node) {
+  const w = getKeysWidget(node);
+  if (!w || w.__falJsonExtractPatched) return w;
+  const orig = w.callback;
+  w.callback = function (value, ...rest) {
+    const r = orig?.call(this, value, ...rest);
+    syncJsonExtractOutputs(node, parseJsonExtractKeys(value));
+    return r;
+  };
+  w.__falJsonExtractPatched = true;
+  return w;
+}
+
+app.registerExtension({
+  name: "ComfyUI.FalGateway.JsonExtractManyDynamicOutputs",
+  async beforeRegisterNodeDef(nodeType, nodeData) {
+    if (nodeData?.name !== JSON_EXTRACT_MANY_NODE) return;
+
+    const onCreated = nodeType.prototype.onNodeCreated;
+    nodeType.prototype.onNodeCreated = function () {
+      const r = onCreated?.apply(this, arguments);
+      const w = ensureKeysCallback(this);
+      if (w) syncJsonExtractOutputs(this, parseJsonExtractKeys(w.value));
+      return r;
+    };
+
+    const onConfigure = nodeType.prototype.onConfigure;
+    nodeType.prototype.onConfigure = function (...args) {
+      const r = onConfigure?.apply(this, args);
+      // Restored workflow: widget value is loaded; resync outputs to match.
+      const w = ensureKeysCallback(this);
+      if (w) syncJsonExtractOutputs(this, parseJsonExtractKeys(w.value));
+      return r;
+    };
+  },
+});
+
 // Refresh-cache + dynamic-widget extensions cover every Fal-Gateway node.
 // Adding a new node = one entry here.
 const FAL_NODE_TYPES = new Set([

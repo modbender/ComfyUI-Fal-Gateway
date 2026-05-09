@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 
-from src.nodes.json_extract import FalGatewayJsonExtract
+from src.nodes.json_extract import FalGatewayJsonExtract, FalGatewayJsonExtractMany
 
 
 def _execute(json_string: str, key: str, default: str = "") -> str:
@@ -68,4 +68,98 @@ def test_node_metadata_shape():
     spec = cls.INPUT_TYPES()
     assert "json_string" in spec["required"]
     assert "key" in spec["required"]
+    assert "default" in spec["optional"]
+
+
+# ---- FalGatewayJsonExtractMany ------------------------------------------
+#
+# Multi-key fan-out. Python returns exactly MAX_OUTPUTS values padded with
+# default; the JS frontend extension hides trailing slots beyond N=len(keys).
+
+
+def _execute_many(json_string: str, keys: str, default: str = "") -> tuple[str, ...]:
+    return FalGatewayJsonExtractMany().execute(
+        json_string=json_string, keys=keys, default=default,
+    )
+
+
+def test_many_extracts_in_key_order_and_pads_to_max():
+    """Five keys → first five outputs hold the values, rest are empty strings."""
+    payload = json.dumps({
+        "title": "Run Free", "tagline": "speed", "cta": "Buy",
+        "audience": "runners", "tone": "energetic",
+    })
+    out = _execute_many(payload, "title, tagline, cta, audience, tone")
+    assert len(out) == FalGatewayJsonExtractMany.MAX_OUTPUTS
+    assert out[:5] == ("Run Free", "speed", "Buy", "runners", "energetic")
+    assert out[5:] == ("",) * (FalGatewayJsonExtractMany.MAX_OUTPUTS - 5)
+
+
+def test_many_uses_default_per_missing_key():
+    """Per-key default applied independently — present keys still come through."""
+    payload = json.dumps({"title": "x"})
+    out = _execute_many(payload, "title, tagline, cta", default="MISSING")
+    assert out[:3] == ("x", "MISSING", "MISSING")
+
+
+def test_many_handles_malformed_json_with_default_for_every_key():
+    """Parse failure → every requested key gets the default."""
+    out = _execute_many("{not json", "a, b, c", default="X")
+    assert out[:3] == ("X", "X", "X")
+
+
+def test_many_strips_whitespace_and_drops_empty_segments():
+    """`'  a , , b ,'` → keys ['a', 'b']."""
+    payload = json.dumps({"a": "1", "b": "2"})
+    out = _execute_many(payload, "  a , , b ,")
+    assert out[:2] == ("1", "2")
+    assert out[2] == ""  # third slot empty since only 2 valid keys
+
+
+def test_many_caps_at_max_outputs():
+    """Asking for more than MAX_OUTPUTS keys silently drops the overflow."""
+    keys = ", ".join(f"k{i}" for i in range(20))
+    payload = json.dumps({f"k{i}": f"v{i}" for i in range(20)})
+    out = _execute_many(payload, keys)
+    assert len(out) == FalGatewayJsonExtractMany.MAX_OUTPUTS
+    # First MAX_OUTPUTS keys → first MAX_OUTPUTS values
+    expected = tuple(f"v{i}" for i in range(FalGatewayJsonExtractMany.MAX_OUTPUTS))
+    assert out == expected
+
+
+def test_many_coerces_non_string_values():
+    """Same coercion rules as Single — int/float/bool stringified, dict/list
+    serialized as JSON."""
+    payload = json.dumps({"n": 7, "f": 0.25, "b": False, "obj": {"x": 1}})
+    out = _execute_many(payload, "n, f, b, obj")
+    assert out[:4] == ("7", "0.25", "False", '{"x": 1}')
+
+
+def test_many_null_value_uses_default():
+    payload = json.dumps({"title": None, "tagline": "ok"})
+    out = _execute_many(payload, "title, tagline", default="N/A")
+    assert out[:2] == ("N/A", "ok")
+
+
+def test_many_empty_keys_returns_all_padding():
+    """No keys at all → every output slot is empty string. Not an error."""
+    out = _execute_many('{"a": 1}', "")
+    assert out == ("",) * FalGatewayJsonExtractMany.MAX_OUTPUTS
+
+
+def test_many_node_metadata_shape():
+    """ComfyUI contract: RETURN_TYPES length == RETURN_NAMES length == MAX_OUTPUTS.
+    The JS extension relies on this contract; if MAX_OUTPUTS bumps here it
+    must bump in fal_gateway.js too — this test is the canary."""
+    cls = FalGatewayJsonExtractMany
+    assert cls.MAX_OUTPUTS == 10
+    assert len(cls.RETURN_TYPES) == cls.MAX_OUTPUTS
+    assert len(cls.RETURN_NAMES) == cls.MAX_OUTPUTS
+    assert all(t == "STRING" for t in cls.RETURN_TYPES)
+    assert cls.RETURN_NAMES == tuple(f"value_{i + 1}" for i in range(cls.MAX_OUTPUTS))
+    assert cls.FUNCTION == "execute"
+    assert cls.CATEGORY.startswith("Fal-Gateway")
+    spec = cls.INPUT_TYPES()
+    assert "json_string" in spec["required"]
+    assert "keys" in spec["required"]
     assert "default" in spec["optional"]

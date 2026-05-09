@@ -23,7 +23,8 @@ This gateway uses **fal's own OpenAPI schemas** to render widgets dynamically. C
 | `Fal Upscale` | Real-ESRGAN, Clarity Upscaler, Crystal Upscaler (auto-detected) | IMAGE, STRING, STRING |
 | `Fal Text-to-Text` | Claude Sonnet 4.5, GPT-5, Gemini 2.5 Pro, Llama 3.3, DeepSeek R1, Grok, Qwen, Mistral — 30+ via OpenRouter, plus direct fal LLMs (Bytedance Seed, Nemotron). Optional `schema` widget switches the response into structured JSON (see below). | STRING (response), STRING (info) |
 | `Fal Image-to-Text` | Flat curated list combining fal-direct vision endpoints (Florence-2, Moondream, Sa2VA, etc.) with OpenRouter vision-capable LLMs (Claude, Gemini, GPT-4o, Grok, Llama-Vision, Pixtral, Qwen-VL, ...). OpenRouter list is auto-detected from `https://openrouter.ai/api/v1/models` filtered by `architecture.input_modalities` containing `"image"` — new vision models surface automatically, no code change required. Vision-only: NSFW filters / OCR / detection variants auto-filtered. Optional `schema` widget switches the response into structured JSON (see below). | STRING (response), STRING (info) |
-| `Fal-Gateway: JSON Extract` | Companion to T2T/I2T schema mode. `(json_string, key, default) → value`. Generic — works with any upstream JSON STRING. | STRING (value) |
+| `JSON Extract (Single)` | Companion to T2T/I2T schema mode. `(json_string, key, default) → value`. Drop one per field you want to extract. Generic — works with any upstream JSON STRING. | STRING (value) |
+| `JSON Extract (Multiple)` | Same idea, fan-out form. `(json_string, keys, default)` where `keys` is comma-separated → one STRING output per key, **output sockets named after each key**, count auto-syncs as you edit `keys`. Cap = 10. | N × STRING (one per key) |
 
 ### What's smart about the dropdowns
 
@@ -42,9 +43,12 @@ schema:  flux_ref_prompt, motion_prompt, title, description, tags
 response: {"flux_ref_prompt": "...", "motion_prompt": "...", "title": "...", "description": "...", "tags": "..."}
 ```
 
-Fan it out with the included **`Fal-Gateway: JSON Extract`** node — `(json_string, key) → value`. One extract per field, one node graph, fully autonomous pipeline.
+Fan it out two ways:
 
-JSON mode dispatches through OpenRouter (`openrouter/router/openai/v1/chat/completions` for T2T; `openrouter/router/vision` for I2T) and works with most models that support strict structured outputs — Claude Sonnet 4.5+, Gemini 2.5, GPT-4o+, Grok, and many open-source models. Older or smaller variants (Claude 3 Haiku, Llama 3.1 8B, Mistral Small) may not strictly honor the schema; the system-prompt instruction is sent as a fallback hint, but you should set a `default` value on each `JSONExtract` to circuit-break when a field is missing. fal-direct vision endpoints (Florence-2, Moondream, etc.) silently ignore the schema since they don't honor `response_format`.
+- **`JSON Extract (Multiple)`** — paste the same comma-separated key list into its `keys` widget; the node grows to N output sockets named after each key, wired straight from one JSON STRING input. One node, N typed connections. Cap is 10 keys.
+- **`JSON Extract (Single)`** — older one-key-at-a-time form. Drop one per field. Useful when keys come from different upstream JSON sources, or when you want explicit per-field defaults.
+
+JSON mode dispatches through OpenRouter (`openrouter/router/openai/v1/chat/completions` for T2T; `openrouter/router/vision` for I2T) and works with most models that support strict structured outputs — Claude Sonnet 4.5+, Gemini 2.5, GPT-4o+, Grok, and many open-source models. Older or smaller variants (Claude 3 Haiku, Llama 3.1 8B, Mistral Small) may not strictly honor the schema; the system-prompt instruction is sent as a fallback hint, but you should set a `default` on the JSON Extract node to circuit-break when a field is missing. fal-direct vision endpoints (Florence-2, Moondream, etc.) silently ignore the schema since they don't honor `response_format`.
 
 ### Cost-per-run badge
 
