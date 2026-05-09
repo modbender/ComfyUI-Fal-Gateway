@@ -298,6 +298,86 @@ async def test_i2t_maps_static_image_socket_to_widget_named_image_url():
     assert payload["image_url"] == "https://fal.media/uploaded.png"
 
 
+# ---- Multi-image socket plumbing (Ref2V / Ref2I / I2V FLF) -------------
+#
+# Two pre-existing bugs surfaced during the T2T/I2T audit:
+#   A) IMAGE_ARRAY widget on Ref2V/Ref2I (multi_ref endpoints): static sockets
+#      image_1..image_4 collapse into a single-element list because the loop
+#      pops only the first wired socket.
+#   B) FLF endpoint with end_image_url before start_image_url in OpenAPI
+#      property order: I2V's lone "image" socket fills the optional end slot
+#      via positional fallback, then the required start slot raises.
+
+
+async def test_ref2v_multi_image_array_collects_all_wired_sockets():
+    """Ref2V wired with 4 reference tensors → payload['image_urls'] holds all 4
+    URLs (not just the first). Endpoint shape: bytedance seedance reference-to-
+    video has ONE IMAGE_ARRAY widget `image_urls`, while the node declares 4
+    static sockets image_1..image_4."""
+    from src.nodes.ref2v import FalGatewayRef2V
+
+    entry = ModelEntry(
+        id="bytedance/seedance-2.0/reference-to-video",
+        display_name="Seedance 2.0 Reference-to-Video",
+        category="image-to-video",
+        shape="multi_ref",
+        widgets=[
+            WidgetSpec(name="image_urls", kind="IMAGE_ARRAY", required=False,
+                       payload_key="image_urls"),
+            WidgetSpec(name="prompt", kind="STRING", payload_key="prompt"),
+        ],
+    )
+    tensors = {f"image_{i}": object() for i in range(1, 5)}
+    upload_results = [
+        f"https://fal.media/ref{i}.png" for i in range(1, 5)
+    ]
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(side_effect=upload_results)):
+        payload = await FalGatewayRef2V()._build_payload(
+            entry, prompt="four refs into one shot", kwargs=tensors,
+        )
+    assert payload["image_urls"] == upload_results, (
+        f"expected all 4 reference URLs in image_urls; got {payload.get('image_urls')!r}"
+    )
+
+
+async def test_i2v_flf_endpoint_with_end_first_in_schema_routes_image_to_required_start():
+    """For kling-video v2.6/v3 (and similar), the OpenAPI order lists
+    `end_image_url` (optional) BEFORE `start_image_url` (required). I2V wires
+    a single `image` socket — the user's intent is the START frame. Positional
+    fallback must prefer required widgets so `image` lands at start_image_url,
+    not end_image_url."""
+    from src.nodes.i2v import FalGatewayI2V
+
+    entry = ModelEntry(
+        id="fal-ai/kling-video/v2.6/pro/image-to-video",
+        display_name="Kling Video v2.6 Pro I2V",
+        category="image-to-video",
+        shape="flf",
+        widgets=[
+            # Order as it appears in the cached OpenAPI doc: end first, start second
+            WidgetSpec(name="end_image_url", kind="IMAGE_INPUT", required=False,
+                       payload_key="end_image_url"),
+            WidgetSpec(name="start_image_url", kind="IMAGE_INPUT", required=True,
+                       payload_key="start_image_url"),
+            WidgetSpec(name="prompt", kind="STRING", payload_key="prompt"),
+        ],
+    )
+    fake_tensor = object()
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.media/start.png")):
+        payload = await FalGatewayI2V()._build_payload(
+            entry, prompt="walks forward", kwargs={"image": fake_tensor},
+        )
+    assert payload.get("start_image_url") == "https://fal.media/start.png", (
+        f"start_image_url should hold the user's image (it's the required slot); "
+        f"got {payload.get('start_image_url')!r}, end_image_url={payload.get('end_image_url')!r}"
+    )
+    assert "end_image_url" not in payload, (
+        f"end_image_url should be empty when only `image` is wired; got {payload.get('end_image_url')!r}"
+    )
+
+
 async def test_i2t_image_array_widget_gets_list_not_bare_url():
     """openrouter/router/vision shape: IMAGE_ARRAY widget at fal_key='image_urls'.
     Payload must hold a LIST of URLs."""

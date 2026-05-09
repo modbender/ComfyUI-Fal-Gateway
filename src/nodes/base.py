@@ -230,6 +230,9 @@ class _FalGatewayNodeBase:
         # "image", "image_1") onto entry.widgets (keyed by OpenAPI property
         # names like "image_url", "image_urls"). Named match wins; unmatched
         # entry widgets pull positionally from declared static sockets.
+        # IMAGE_ARRAY widgets (multi_ref endpoints) collect ALL remaining
+        # wired sockets into a list — popping just one would silently drop
+        # the rest of the user's reference images.
         image_widgets = [w for w in entry.widgets if w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY")]
         cls = type(self)
         static_socket_names = (
@@ -240,9 +243,31 @@ class _FalGatewayNodeBase:
         unused_static = list(wired_static)
 
         for w in image_widgets:
+            if w.kind == "IMAGE_ARRAY":
+                # Explicit kwargs[w.name] wins (single tensor or list); else
+                # collect every remaining wired static socket into the array.
+                named = kwargs.get(w.name)
+                if isinstance(named, list):
+                    tensors = list(named)
+                elif named is not None:
+                    tensors = [named]
+                else:
+                    tensors = [kwargs[s] for s in unused_static]
+                    unused_static.clear()
+                if not tensors:
+                    if w.required:
+                        raise RuntimeError(
+                            f"required image input {w.name!r} not connected"
+                        )
+                    continue
+                payload[w.fal_key] = [
+                    await upload_tensor_image(t) for t in tensors
+                ]
+                continue
+
+            # IMAGE_INPUT (single)
             tensor = kwargs.get(w.name)
             if tensor is None and unused_static:
-                # No exact name match — pull the next wired static socket.
                 tensor = kwargs[unused_static.pop(0)]
             elif tensor is not None and w.name in unused_static:
                 unused_static.remove(w.name)
@@ -250,11 +275,7 @@ class _FalGatewayNodeBase:
                 if w.required:
                     raise RuntimeError(f"required image input {w.name!r} not connected")
                 continue
-            url = await upload_tensor_image(tensor)
-            if w.kind == "IMAGE_ARRAY":
-                payload[w.fal_key] = [url]
-            else:
-                payload[w.fal_key] = url
+            payload[w.fal_key] = await upload_tensor_image(tensor)
 
         # 3. Non-image widgets — M1 uses WidgetSpec defaults; M4 will read from kwargs once
         #    the frontend renders these widgets dynamically.
