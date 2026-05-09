@@ -2,6 +2,14 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.3](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.2...v0.3.3) (2026-05-09)
+
+
+### Bug Fixes
+
+* **config:** correct config.ini lookup path after src/fal/ regrouping ([fa0bb5d](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/fa0bb5dcdb9355126e565671457188335fe41e63))
+* **config:** drop Path.resolve() so config.ini lookup works through Windows-to-WSL symlinks ([c702aaa](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/c702aaaaee4aca26a9855fea7617c65862ec2083))
+
 ## [0.3.2](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.1...v0.3.2) (2026-05-08)
 
 
