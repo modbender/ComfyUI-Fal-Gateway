@@ -233,7 +233,17 @@ class _FalGatewayNodeBase:
         # IMAGE_ARRAY widgets (multi_ref endpoints) collect ALL remaining
         # wired sockets into a list — popping just one would silently drop
         # the rest of the user's reference images.
-        image_widgets = [w for w in entry.widgets if w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY")]
+        # REQUIRED widgets get positional fallback BEFORE optional ones —
+        # for FLF endpoints whose OpenAPI property order is `end_image_url`
+        # (opt) before `start_image_url` (req) (kling-video v2.6/v3, etc.),
+        # the user's lone `image` socket should fill the required start, not
+        # the optional end. Without this sort the required slot stays empty
+        # and the loop raises "required image input 'start_image_url' not
+        # connected" — every kling-video v2.6+/v3 I2V dispatch was broken.
+        image_widgets = sorted(
+            (w for w in entry.widgets if w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY")),
+            key=lambda w: 0 if w.required else 1,
+        )
         cls = type(self)
         static_socket_names = (
             list(cls.image_socket_names()) + list(cls.optional_image_socket_names())
