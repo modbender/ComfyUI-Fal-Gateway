@@ -78,26 +78,26 @@ class FalGatewayJsonExtract:
 
 
 class FalGatewayJsonExtractMany:
-    """Multi-key JSON extractor — single multiline `keys` textarea, N outputs.
+    """Multi-key JSON extractor with R2V-style +/- counter UX.
 
-    Why this shape (and NOT the R2V-style `key_count + key_N` widgets):
-    LiteGraph's `computeSize` hard-codes `rows = max(inputs, outputs)` and
-    stacks widgets *below* the slot strip — there's no path to "outputs
-    aligned with widget rows" without writing custom row widgets the way
-    rgthree's Power LoRA Loader does (~500 lines of canvas code, fragile
-    across LG versions). Per-row widgets that hide/show based on a counter
-    create a permanent visual mismatch (right column has N output dots,
-    left column has only the visible widgets — empty band on the left).
+    UI shape (mirrors `FalGatewayRef2V`'s `image_count` → image_N socket
+    pattern):
+      - `key_count`: INT widget, +/- arrows, range 1..MAX_OUTPUTS
+      - `key_1`..`key_N`: single-line STRING widgets, one per active row
+      - N output sockets named after each key's current value
 
-    Single-textarea form sidesteps the whole layout fight: one short widget
-    holds all keys, N output sockets sit on the right and rename live as
-    the user types. Widget area stays compact, output strip drives node
-    height naturally, no dead space.
+    All `key_1`..`key_MAX_OUTPUTS` widgets are declared in INPUT_TYPES so
+    ComfyUI can serialize/restore their values across save+load. The JS
+    extension in `web/fal_gateway.js` hides the excess (key_(N+1)..) when
+    the user dials key_count down, and renames output sockets to mirror
+    each key widget's value.
 
-    Python always returns exactly `MAX_OUTPUTS` strings — slots beyond the
-    parsed key count get the `default` value. JS extension watches the
-    `keys` widget, parses the comma-separated list, syncs output socket
-    count + names. Cap at 10 keys.
+    Python always returns exactly `MAX_OUTPUTS` strings — values for
+    inactive keys are empty strings — so RETURN_TYPES stays static.
+
+    Bumping `MAX_OUTPUTS` requires bumping the matching JS constant. A
+    metadata test pins the contract; if you bump here without bumping
+    there the test fails as a canary.
     """
 
     CATEGORY = "Fal-Gateway"
@@ -109,17 +109,23 @@ class FalGatewayJsonExtractMany:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
+        required: dict[str, Any] = {
+            "json_string": (
+                "STRING",
+                {"default": "", "multiline": True, "forceInput": True},
+            ),
+            "key_count": (
+                "INT",
+                {"default": 1, "min": 1, "max": cls.MAX_OUTPUTS, "step": 1},
+            ),
+        }
+        for i in range(1, cls.MAX_OUTPUTS + 1):
+            required[f"key_{i}"] = (
+                "STRING",
+                {"default": "", "multiline": False},
+            )
         return {
-            "required": {
-                "json_string": (
-                    "STRING",
-                    {"default": "", "multiline": True, "forceInput": True},
-                ),
-                "keys": (
-                    "STRING",
-                    {"default": "", "multiline": True},
-                ),
-            },
+            "required": required,
             "optional": {
                 "default": ("STRING", {"default": ""}),
             },
@@ -128,17 +134,24 @@ class FalGatewayJsonExtractMany:
     def execute(
         self,
         json_string: str,
-        keys: str,
+        key_count: int,
         default: str = "",
+        **keys: str,
     ) -> tuple[str, ...]:
-        keys_list = [k.strip() for k in keys.split(",") if k.strip()]
+        # Clamp to declared range — defends against JS hand-edits or stale
+        # workflows that saved an out-of-range value.
+        n = max(1, min(int(key_count or 1), self.MAX_OUTPUTS))
         parsed = _parse_dict(json_string) or {}
 
-        values = [
-            _coerce_value(parsed.get(k), default)
-            for k in keys_list[: self.MAX_OUTPUTS]
-        ]
-        # Pad to MAX_OUTPUTS so tuple length always matches RETURN_TYPES.
-        # The JS extension trims the visible sockets to len(keys_list).
+        values: list[str] = []
+        for i in range(1, n + 1):
+            key = (keys.get(f"key_{i}") or "").strip()
+            if not key:
+                values.append(default)
+                continue
+            values.append(_coerce_value(parsed.get(key), default))
+
+        # Pad to MAX_OUTPUTS so the tuple length always matches RETURN_TYPES.
+        # The trailing sockets are hidden in the UI when key_count < MAX.
         values.extend([""] * (self.MAX_OUTPUTS - len(values)))
         return tuple(values)
