@@ -1,9 +1,10 @@
 """Tests for fal_config: env-var → config.ini → placeholder handling."""
 
 import os
+from pathlib import Path
 
 
-from src.fal.config import FalConfig
+from src.fal.config import FalConfig, _default_config_path
 
 
 PLACEHOLDER = "<your_fal_api_key_here>"
@@ -78,3 +79,23 @@ def test_empty_config_section_returns_none(monkeypatch, tmp_path):
     ini_path.write_text("[API]\n", encoding="utf-8")
     cfg = FalConfig(config_path=str(ini_path))
     assert cfg.key is None
+
+
+def test_default_config_path_points_at_package_root():
+    """Pin the resolved location: <package-root>/config.ini, next to __init__.py.
+
+    Regression guard for when src/fal_config.py was regrouped under src/fal/ —
+    the .parent count wasn't bumped, silently directing lookups to
+    <package>/src/config.ini and breaking every install with a config.ini.
+    """
+    default_path = Path(_default_config_path())
+    package_root = default_path.parent
+    assert default_path.name == "config.ini"
+    assert (package_root / "__init__.py").exists(), (
+        f"_default_config_path() resolved to {default_path}; expected "
+        f"<package-root>/config.ini (sibling of __init__.py)"
+    )
+    assert (package_root / "pyproject.toml").exists(), (
+        f"_default_config_path() resolved to {default_path}; expected "
+        f"<package-root>/config.ini (sibling of pyproject.toml)"
+    )

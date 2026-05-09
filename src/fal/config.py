@@ -24,12 +24,12 @@ PLACEHOLDER = "<your_fal_api_key_here>"
 
 
 def _default_config_path() -> str:
-    # Don't .resolve() — on Windows installs that symlink custom_nodes/<pkg>
-    # into a WSL repo, resolve() rewrites the path to a \\wsl.localhost\... UNC
-    # that Windows often can't read, so the config.ini lookup misses. Keeping
-    # the symlinked path lets Windows read through the symlink it already used
-    # to load this module.
-    return str(Path(__file__).parent.parent / "config.ini")
+    # config.py lives at <package>/src/fal/config.py — the package root (where
+    # config.ini sits next to __init__.py) is THREE parents up. The .parent
+    # count was last updated when this file was at <package>/src/fal_config.py;
+    # the src/fal/ regrouping moved it one directory deeper without bumping
+    # the count, which silently pointed lookups at <package>/src/config.ini.
+    return str(Path(__file__).parent.parent.parent / "config.ini")
 
 
 class FalConfig:
