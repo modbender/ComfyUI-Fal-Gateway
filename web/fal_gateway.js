@@ -87,47 +87,77 @@ app.registerExtension({
   },
 });
 
-// JSON Extract (Multiple): mirror the comma-separated `keys` widget value
-// onto the node's output sockets — one socket per key, named after the key.
-// Python's RETURN_TYPES is fixed at MAX_JSON_EXTRACT_OUTPUTS so the backend
-// always returns that many strings; we just hide the trailing ones in the
-// UI. MUST stay in sync with FalGatewayJsonExtractMany.MAX_OUTPUTS.
+// JSON Extract (Multiple): R2V-style +/- counter (`key_count`) drives both
+// (a) which `key_N` text widgets are visible and (b) how many output sockets
+// are exposed. Each `key_N` widget's value also names the matching output.
+// Python declares all key_1..key_MAX_OUTPUTS in INPUT_TYPES so the values
+// serialize/restore cleanly; we just hide the rows past key_count here.
+// MUST stay in sync with FalGatewayJsonExtractMany.MAX_OUTPUTS.
 const JSON_EXTRACT_MANY_NODE = "FalGatewayJsonExtractMany";
 const MAX_JSON_EXTRACT_OUTPUTS = 10;
 
-function parseJsonExtractKeys(value) {
-  if (typeof value !== "string" || !value) return [];
-  return value
-    .split(",")
-    .map((k) => k.trim())
-    .filter((k) => k.length > 0)
-    .slice(0, MAX_JSON_EXTRACT_OUTPUTS);
+function findKeyWidget(node, i) {
+  return node.widgets?.find((w) => w && w.name === `key_${i}`);
 }
 
-function syncJsonExtractOutputs(node, keys) {
-  // At least one output is always shown — even empty `keys` keeps `value_1`
-  // visible so the node has something to wire into during initial setup.
-  const targetCount = Math.max(1, keys.length);
-  const current = node.outputs ? node.outputs.length : 0;
+function setKeyWidgetVisible(widget, visible) {
+  // ComfyUI / LiteGraph hide trick: stash original type+computeSize, swap to
+  // a zero-height "hidden" type. Restoring puts the originals back so the
+  // widget renders normally again.
+  if (!widget) return;
+  if (visible) {
+    if (widget.__falKeyHiddenType !== undefined) {
+      widget.type = widget.__falKeyHiddenType;
+      widget.computeSize = widget.__falKeyHiddenComputeSize;
+      delete widget.__falKeyHiddenType;
+      delete widget.__falKeyHiddenComputeSize;
+    }
+    return;
+  }
+  // Hide
+  if (widget.__falKeyHiddenType === undefined) {
+    widget.__falKeyHiddenType = widget.type;
+    widget.__falKeyHiddenComputeSize = widget.computeSize;
+  }
+  widget.type = "hidden";
+  widget.computeSize = () => [0, -4];
+}
 
-  // Trim excess outputs, high → low so indices stay stable for survivors.
-  // removeOutput drops any wired connection on the removed slot — expected.
-  for (let i = current - 1; i >= targetCount; i--) {
+function renameJsonExtractOutput(node, idx, keyValue) {
+  if (!node.outputs || !node.outputs[idx]) return;
+  const desired = (keyValue || "").trim() || `value_${idx + 1}`;
+  if (node.outputs[idx].name === desired) return;
+  node.outputs[idx].name = desired;
+  node.outputs[idx].label = desired;
+  if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+}
+
+function syncJsonExtractMany(node, count) {
+  const n = Math.max(
+    1,
+    Math.min(MAX_JSON_EXTRACT_OUTPUTS, Math.floor(count || 1)),
+  );
+
+  // 1. Hide / show key_N widgets to match key_count.
+  for (let i = 1; i <= MAX_JSON_EXTRACT_OUTPUTS; i++) {
+    setKeyWidgetVisible(findKeyWidget(node, i), i <= n);
+  }
+
+  // 2. Sync output socket count (high → low for trim so indices stay stable).
+  const current = node.outputs ? node.outputs.length : 0;
+  for (let i = current - 1; i >= n; i--) {
     node.removeOutput(i);
   }
-  // Grow back if user added keys after a previous trim.
-  for (let i = current; i < targetCount; i++) {
+  for (let i = current; i < n; i++) {
     node.addOutput(`value_${i + 1}`, "STRING");
   }
-  // Rename to match the user's keys (or the default value_N when no key).
-  for (let i = 0; i < targetCount; i++) {
-    const desired = keys[i] || `value_${i + 1}`;
-    if (node.outputs[i].name !== desired) {
-      node.outputs[i].name = desired;
-      node.outputs[i].label = desired;
-    }
+
+  // 3. Rename the now-visible outputs to mirror each key widget's value.
+  for (let i = 1; i <= n; i++) {
+    renameJsonExtractOutput(node, i - 1, findKeyWidget(node, i)?.value);
   }
-  // Same grow-only resize policy as the Ref nodes — keep user's manual size.
+
+  // 4. Grow-only resize so we don't shrink below the user's manual size.
   if (node.computeSize) {
     const min = node.computeSize();
     const cur = node.size || min;
@@ -138,21 +168,34 @@ function syncJsonExtractOutputs(node, keys) {
   }
 }
 
-function getKeysWidget(node) {
-  return node.widgets?.find((w) => w && w.name === "keys");
-}
-
-function ensureKeysCallback(node) {
-  const w = getKeysWidget(node);
+function patchKeyCountCallback(node) {
+  const w = node.widgets?.find((x) => x && x.name === "key_count");
   if (!w || w.__falJsonExtractPatched) return w;
   const orig = w.callback;
   w.callback = function (value, ...rest) {
     const r = orig?.call(this, value, ...rest);
-    syncJsonExtractOutputs(node, parseJsonExtractKeys(value));
+    syncJsonExtractMany(node, value);
     return r;
   };
   w.__falJsonExtractPatched = true;
   return w;
+}
+
+function patchKeyValueCallbacks(node) {
+  // Each key_N widget's callback must rename its corresponding output socket
+  // when the user types a new key name. Idempotent — flag prevents repatch.
+  for (let i = 1; i <= MAX_JSON_EXTRACT_OUTPUTS; i++) {
+    const w = findKeyWidget(node, i);
+    if (!w || w.__falKeyValuePatched) continue;
+    const orig = w.callback;
+    const idx = i - 1;
+    w.callback = function (value, ...rest) {
+      const r = orig?.call(this, value, ...rest);
+      renameJsonExtractOutput(node, idx, value);
+      return r;
+    };
+    w.__falKeyValuePatched = true;
+  }
 }
 
 app.registerExtension({
@@ -163,17 +206,21 @@ app.registerExtension({
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
-      const w = ensureKeysCallback(this);
-      if (w) syncJsonExtractOutputs(this, parseJsonExtractKeys(w.value));
+      const cw = patchKeyCountCallback(this);
+      patchKeyValueCallbacks(this);
+      // Fresh node: trim widgets+outputs to default key_count (1).
+      if (cw) syncJsonExtractMany(this, cw.value);
       return r;
     };
 
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function (...args) {
       const r = onConfigure?.apply(this, args);
-      // Restored workflow: widget value is loaded; resync outputs to match.
-      const w = ensureKeysCallback(this);
-      if (w) syncJsonExtractOutputs(this, parseJsonExtractKeys(w.value));
+      // Restored workflow: widget values already loaded; resync visibility +
+      // outputs so the node looks the way it was saved.
+      const cw = patchKeyCountCallback(this);
+      patchKeyValueCallbacks(this);
+      if (cw) syncJsonExtractMany(this, cw.value);
       return r;
     };
   },
