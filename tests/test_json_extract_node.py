@@ -204,8 +204,10 @@ def test_many_node_metadata_shape():
     The JS extension relies on this contract — if MAX_OUTPUTS bumps here, it
     must bump in fal_gateway.js too. This test is the canary.
 
-    Also pins the input-types shape: key_count INT widget with +/- range,
-    plus key_1..key_MAX_OUTPUTS single-line STRING widgets."""
+    Pins the static INPUT_TYPES shape: ONLY key_count + default + key_1 are
+    declared. key_2..key_MAX_OUTPUTS are added by the JS extension at runtime
+    via node.addWidget when key_count grows (mirrors M4's per-model dynamic
+    widget pattern)."""
     cls = FalGatewayJsonExtractMany
     assert cls.MAX_OUTPUTS == 10
     assert len(cls.RETURN_TYPES) == cls.MAX_OUTPUTS
@@ -216,8 +218,18 @@ def test_many_node_metadata_shape():
     assert cls.CATEGORY.startswith("Fal-Gateway")
 
     spec = cls.INPUT_TYPES()
+    # All static widgets in `required` for stable widget order at save time
+    # (no `optional` block — `default` is moved to required so save order is
+    # [key_count, default, key_1, <dynamic key_N>]). Stability matters
+    # because widgets_values is positional, and the JS extension reads
+    # values past the static count back into a sidecar Map.
+    assert "optional" not in spec or not spec["optional"], (
+        "all widgets must be in `required` so save order stays stable"
+    )
     assert "json_string" in spec["required"]
-    assert "default" in spec["optional"]
+    assert "key_count" in spec["required"]
+    assert "default" in spec["required"]
+    assert "key_1" in spec["required"]
 
     # key_count is an INT spinner with +/- arrows in the UI.
     kc_type, kc_meta = spec["required"]["key_count"]
@@ -227,11 +239,11 @@ def test_many_node_metadata_shape():
     assert kc_meta["step"] == 1
     assert kc_meta["default"] == 1
 
-    # All key_1..key_MAX_OUTPUTS declared as single-line STRING widgets so
-    # ComfyUI serializes/restores them across save+load cleanly.
-    for i in range(1, cls.MAX_OUTPUTS + 1):
-        key_name = f"key_{i}"
-        assert key_name in spec["required"], f"missing {key_name} in INPUT_TYPES"
-        kt, kmeta = spec["required"][key_name]
-        assert kt == "STRING"
-        assert kmeta.get("multiline") is False, f"{key_name} should be single-line"
+    # key_2..key_MAX_OUTPUTS are NOT in INPUT_TYPES — they're added
+    # dynamically by JS. The JS-side add MUST stay in sync with this
+    # absence; if you ever move them back into INPUT_TYPES, the splice
+    # logic in fal_gateway.js will recreate the bug it was written to fix.
+    for i in range(2, cls.MAX_OUTPUTS + 1):
+        assert f"key_{i}" not in spec["required"], (
+            f"key_{i} must be added dynamically by JS, not declared in INPUT_TYPES"
+        )

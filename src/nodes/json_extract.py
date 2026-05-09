@@ -83,21 +83,25 @@ class FalGatewayJsonExtractMany:
     UI shape (mirrors `FalGatewayRef2V`'s `image_count` → image_N socket
     pattern):
       - `key_count`: INT widget, +/- arrows, range 1..MAX_OUTPUTS
+      - `default`: STRING widget — value used when a key is missing
       - `key_1`..`key_N`: single-line STRING widgets, one per active row
       - N output sockets named after each key's current value
 
-    All `key_1`..`key_MAX_OUTPUTS` widgets are declared in INPUT_TYPES so
-    ComfyUI can serialize/restore their values across save+load. The JS
-    extension in `web/fal_gateway.js` hides the excess (key_(N+1)..) when
-    the user dials key_count down, and renames output sockets to mirror
-    each key widget's value.
+    INPUT_TYPES declares ONLY the static widgets (`key_count`, `default`,
+    `key_1`). The JS extension in `web/fal_gateway.js` adds `key_2`..`key_N`
+    via `node.addWidget` when the user dials key_count up, and removes
+    them via `node.widgets.splice` when the user dials it down — same
+    pattern as M4's per-model dynamic widgets in this codebase. This
+    avoids the LiteGraph quirk where setting widget.type="hidden" +
+    computeSize=[0,-4] doesn't actually disable hit testing — clicks
+    were still triggering edits on widgets that looked invisible.
 
-    Python always returns exactly `MAX_OUTPUTS` strings — values for
-    inactive keys are empty strings — so RETURN_TYPES stays static.
+    Python execute() takes `key_count` and reads `key_1`..`key_N` from
+    **kwargs (all dynamic widget values arrive that way — same as M4
+    base.py). Always returns exactly `MAX_OUTPUTS` strings.
 
     Bumping `MAX_OUTPUTS` requires bumping the matching JS constant. A
-    metadata test pins the contract; if you bump here without bumping
-    there the test fails as a canary.
+    metadata test pins the contract.
     """
 
     CATEGORY = "Fal-Gateway"
@@ -109,25 +113,25 @@ class FalGatewayJsonExtractMany:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
-        required: dict[str, Any] = {
-            "json_string": (
-                "STRING",
-                {"default": "", "multiline": True, "forceInput": True},
-            ),
-            "key_count": (
-                "INT",
-                {"default": 1, "min": 1, "max": cls.MAX_OUTPUTS, "step": 1},
-            ),
-        }
-        for i in range(1, cls.MAX_OUTPUTS + 1):
-            required[f"key_{i}"] = (
-                "STRING",
-                {"default": "", "multiline": False},
-            )
+        # Only the STATIC widgets here. key_2..key_MAX_OUTPUTS are added
+        # dynamically by JS based on key_count. `default` lives in required
+        # (not optional) so widget order at save time stays stable:
+        #   [key_count, default, key_1, <dynamic key_2..key_N>]
+        # On load, ComfyUI reconstructs the 3 static widgets and applies
+        # widgets_values[0..2] to them; the JS extension reads the trailing
+        # values[3..] back into a sidecar Map so dynamic key values restore.
         return {
-            "required": required,
-            "optional": {
+            "required": {
+                "json_string": (
+                    "STRING",
+                    {"default": "", "multiline": True, "forceInput": True},
+                ),
+                "key_count": (
+                    "INT",
+                    {"default": 1, "min": 1, "max": cls.MAX_OUTPUTS, "step": 1},
+                ),
                 "default": ("STRING", {"default": ""}),
+                "key_1": ("STRING", {"default": ""}),
             },
         }
 
@@ -152,6 +156,6 @@ class FalGatewayJsonExtractMany:
             values.append(_coerce_value(parsed.get(key), default))
 
         # Pad to MAX_OUTPUTS so the tuple length always matches RETURN_TYPES.
-        # The trailing sockets are hidden in the UI when key_count < MAX.
+        # The JS extension trims visible output sockets to the active count.
         values.extend([""] * (self.MAX_OUTPUTS - len(values)))
         return tuple(values)

@@ -88,61 +88,35 @@ app.registerExtension({
 });
 
 // JSON Extract (Multiple): R2V-style +/- counter (`key_count`) drives both
-// (a) which `key_N` text widgets are visible and (b) how many output sockets
+// (a) how many `key_N` text widgets exist and (b) how many output sockets
 // are exposed. Each `key_N` widget's value also names the matching output.
-// Python declares all key_1..key_MAX_OUTPUTS in INPUT_TYPES so the values
-// serialize/restore cleanly; we just hide the rows past key_count here.
+//
+// IMPLEMENTATION: dynamic add/remove via node.addWidget + node.widgets.splice
+// (NOT hide-in-place). The earlier hide approach (widget.type="hidden" +
+// computeSize=[0,-4] + widget.draw=()=>{}) appeared to work but failed two
+// quietly: text-widget hit testing in LiteGraph uses widget bounds, and
+// hidden widgets with 0 height + -4 spacing offset stack on top of the
+// widget BELOW them — clicks landing in that area triggered the invisible
+// widget's edit popup. Plus restoring widget.draw to a captured-undefined
+// original orphaned widgets that wouldn't redraw. The splice approach
+// mirrors the M4 dynamic-widget pattern already in this file (per-model
+// widgets in rebuildDynamicWidgets) — widgets that aren't in node.widgets
+// can't be clicked because they don't exist.
+//
+// STATIC widgets declared in Python INPUT_TYPES (always present, in order):
+//   [key_count, default, key_1]
+// DYNAMIC widgets added by this extension (count tied to key_count):
+//   [key_2, key_3, ..., key_N]   ← each tagged with _falDynamic
+// Order at save: [key_count, default, key_1, key_2, ..., key_N]
+//   widgets_values is positional, so on load ComfyUI fills the 3 static
+//   widgets from values[0..2] and we read values[3..] back into a sidecar
+//   Map keyed by name to restore dynamic-widget values.
 // MUST stay in sync with FalGatewayJsonExtractMany.MAX_OUTPUTS.
 const JSON_EXTRACT_MANY_NODE = "FalGatewayJsonExtractMany";
 const MAX_JSON_EXTRACT_OUTPUTS = 10;
-
-function findKeyWidget(node, i) {
-  return node.widgets?.find((w) => w && w.name === `key_${i}`);
-}
-
-function setKeyWidgetVisible(widget, visible) {
-  // Real "hide a ComfyUI widget" trick. Setting widget.type = "hidden" and
-  // widget.computeSize = () => [0, -4] is NOT enough — the widget's `draw`
-  // method is bound at creation time and ignores the type swap, so the row
-  // keeps rendering. We have to override `draw` too, plus stash originals
-  // so visibility can be restored without recreating the widget (which
-  // would lose its serialized value).
-  if (!widget) return;
-  if (visible) {
-    if (widget.__falKeyHidden) {
-      widget.type = widget.__falKeyOrigType;
-      widget.computeSize = widget.__falKeyOrigComputeSize;
-      widget.draw = widget.__falKeyOrigDraw;
-      delete widget.__falKeyHidden;
-      delete widget.__falKeyOrigType;
-      delete widget.__falKeyOrigComputeSize;
-      delete widget.__falKeyOrigDraw;
-    }
-    return;
-  }
-  if (widget.__falKeyHidden) return;
-  widget.__falKeyHidden = true;
-  widget.__falKeyOrigType = widget.type;
-  widget.__falKeyOrigComputeSize = widget.computeSize;
-  widget.__falKeyOrigDraw = widget.draw;
-  widget.type = "hidden";
-  widget.computeSize = () => [0, -4];
-  widget.draw = () => {};
-}
-
-// NOTE: an earlier attempt patched node.computeSize + node.getConnectionPos
-// to render input/output sockets along the bottom edge of the node (under
-// the widget stack). It broke the visible sockets entirely: getConnectionPos
-// only repositions wire endpoints, while LiteGraph draws the actual socket
-// dots from drawNodeShape using internal slot-Y math that ignores the
-// override. The dots vanished into invisible coordinates while wires
-// pointed at empty canvas. Reverted; sockets stay top-anchored.
-//
-// The widget-hide fix above (widget.draw = () => {}) is the genuine
-// improvement — collapsing key_2..key_N when key_count drops removes the
-// huge dead band the user originally reported. Layout flip would require
-// hooking the node draw pipeline (drawNodeShape / onDrawForeground) which
-// is materially more fragile across ComfyUI versions; deferring.
+// Static widget count from INPUT_TYPES required: key_count, default, key_1.
+// json_string is forceInput=True so it's a socket, not a widget — excluded.
+const JSON_EXTRACT_STATIC_WIDGET_COUNT = 3;
 
 function renameJsonExtractOutput(node, idx, keyValue) {
   if (!node.outputs || !node.outputs[idx]) return;
@@ -153,18 +127,48 @@ function renameJsonExtractOutput(node, idx, keyValue) {
   if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
 }
 
+function makeDynamicKeyWidget(node, i, value) {
+  // node.addWidget appends to the end of node.widgets — that's exactly
+  // where we want it (after all static widgets), so no splice/reorder.
+  const w = node.addWidget("text", `key_${i}`, value || "", null, {});
+  w._falDynamic = true;
+  const idx = i - 1;
+  w.callback = function (val) {
+    renameJsonExtractOutput(node, idx, val);
+  };
+  return w;
+}
+
 function syncJsonExtractMany(node, count) {
   const n = Math.max(
     1,
     Math.min(MAX_JSON_EXTRACT_OUTPUTS, Math.floor(count || 1)),
   );
 
-  // 1. Hide / show key_N widgets to match key_count.
-  for (let i = 1; i <= MAX_JSON_EXTRACT_OUTPUTS; i++) {
-    setKeyWidgetVisible(findKeyWidget(node, i), i <= n);
+  // 1. Save current dynamic widget values into a sidecar Map BEFORE removal.
+  //    Lets the user dial count down and back up without losing typed keys
+  //    within the session. (Workflow save/load handled separately via
+  //    onConfigure → loadDynamicKeysFromConfig.)
+  const sidecar = node._falKeySidecar || new Map();
+  for (const w of node.widgets || []) {
+    if (w?._falDynamic) sidecar.set(w.name, w.value);
+  }
+  node._falKeySidecar = sidecar;
+
+  // 2. Remove ALL dynamic widgets from node.widgets — splice, not hide.
+  //    This is the actual fix: removed widgets aren't in the layout, can't
+  //    be clicked, can't fire popups, can't claim a Y position.
+  if (node.widgets) {
+    node.widgets = node.widgets.filter((w) => !w?._falDynamic);
   }
 
-  // 2. Sync output socket count (high → low for trim so indices stay stable).
+  // 3. Add key_2..key_N back. addWidget appends, so order becomes
+  //    [key_count, default, key_1, key_2, ..., key_N] — what save expects.
+  for (let i = 2; i <= n; i++) {
+    makeDynamicKeyWidget(node, i, sidecar.get(`key_${i}`) || "");
+  }
+
+  // 4. Sync output socket count (high → low trim so indices stay stable).
   const current = node.outputs ? node.outputs.length : 0;
   for (let i = current - 1; i >= n; i--) {
     node.removeOutput(i);
@@ -173,12 +177,13 @@ function syncJsonExtractMany(node, count) {
     node.addOutput(`value_${i + 1}`, "STRING");
   }
 
-  // 3. Rename the now-visible outputs to mirror each key widget's value.
+  // 5. Rename outputs based on each key widget's current value.
   for (let i = 1; i <= n; i++) {
-    renameJsonExtractOutput(node, i - 1, findKeyWidget(node, i)?.value);
+    const w = (node.widgets || []).find((x) => x?.name === `key_${i}`);
+    renameJsonExtractOutput(node, i - 1, w?.value);
   }
 
-  // 4. Grow-only resize so we don't shrink below the user's manual size.
+  // 6. Grow-only resize so we don't shrink below the user's manual size.
   if (node.computeSize) {
     const min = node.computeSize();
     const cur = node.size || min;
@@ -202,21 +207,35 @@ function patchKeyCountCallback(node) {
   return w;
 }
 
-function patchKeyValueCallbacks(node) {
-  // Each key_N widget's callback must rename its corresponding output socket
-  // when the user types a new key name. Idempotent — flag prevents repatch.
-  for (let i = 1; i <= MAX_JSON_EXTRACT_OUTPUTS; i++) {
-    const w = findKeyWidget(node, i);
-    if (!w || w.__falKeyValuePatched) continue;
-    const orig = w.callback;
-    const idx = i - 1;
-    w.callback = function (value, ...rest) {
-      const r = orig?.call(this, value, ...rest);
-      renameJsonExtractOutput(node, idx, value);
-      return r;
-    };
-    w.__falKeyValuePatched = true;
+function patchKey1Callback(node) {
+  // key_1 is static (always in node.widgets); its rename callback also
+  // needs patching. Dynamic key_N widgets get callbacks at creation in
+  // makeDynamicKeyWidget, so they don't need this.
+  const w = node.widgets?.find((x) => x && x.name === "key_1");
+  if (!w || w.__falKey1Patched) return;
+  const orig = w.callback;
+  w.callback = function (value, ...rest) {
+    const r = orig?.call(this, value, ...rest);
+    renameJsonExtractOutput(node, 0, value);
+    return r;
+  };
+  w.__falKey1Patched = true;
+}
+
+function loadDynamicKeysFromConfig(node) {
+  // onConfigure has populated node.widgets_values from the saved workflow
+  // JSON. The first JSON_EXTRACT_STATIC_WIDGET_COUNT entries map to the
+  // static widgets (key_count, default, key_1). Anything past that is a
+  // dynamic key value at save time, in name order key_2, key_3, ...
+  // Stash them in the sidecar Map; syncJsonExtractMany then re-creates
+  // those widgets with the saved values.
+  const values = node.widgets_values || [];
+  const sidecar = new Map();
+  for (let i = JSON_EXTRACT_STATIC_WIDGET_COUNT; i < values.length; i++) {
+    const keyName = `key_${i - JSON_EXTRACT_STATIC_WIDGET_COUNT + 2}`;
+    sidecar.set(keyName, values[i]);
   }
+  node._falKeySidecar = sidecar;
 }
 
 app.registerExtension({
@@ -227,9 +246,9 @@ app.registerExtension({
     const onCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const r = onCreated?.apply(this, arguments);
+      patchKey1Callback(this);
       const cw = patchKeyCountCallback(this);
-      patchKeyValueCallbacks(this);
-      // Fresh node: trim widgets+outputs to default key_count (1).
+      // Fresh node: no dynamic widgets yet, just sync to default count (1).
       if (cw) syncJsonExtractMany(this, cw.value);
       return r;
     };
@@ -237,10 +256,11 @@ app.registerExtension({
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function (...args) {
       const r = onConfigure?.apply(this, args);
-      // Restored workflow: widget values already loaded; resync visibility +
-      // outputs so the node looks the way it was saved.
+      // Restored workflow: pull saved dynamic-key values out of
+      // widgets_values BEFORE syncJsonExtractMany rebuilds the widgets.
+      loadDynamicKeysFromConfig(this);
+      patchKey1Callback(this);
       const cw = patchKeyCountCallback(this);
-      patchKeyValueCallbacks(this);
       if (cw) syncJsonExtractMany(this, cw.value);
       return r;
     };
