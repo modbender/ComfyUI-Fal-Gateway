@@ -103,20 +103,35 @@ app.registerExtension({
 // widgets in rebuildDynamicWidgets) — widgets that aren't in node.widgets
 // can't be clicked because they don't exist.
 //
-// STATIC widgets declared in Python INPUT_TYPES (always present, in order):
-//   [key_count, default, key_1]
-// DYNAMIC widgets added by this extension (count tied to key_count):
-//   [key_2, key_3, ..., key_N]   ← each tagged with _falDynamic
-// Order at save: [key_count, default, key_1, key_2, ..., key_N]
-//   widgets_values is positional, so on load ComfyUI fills the 3 static
-//   widgets from values[0..2] and we read values[3..] back into a sidecar
-//   Map keyed by name to restore dynamic-widget values.
+// Widgets declared in Python INPUT_TYPES (ComfyUI auto-creates ALL at init):
+//   required: [key_count, default, key_1]
+//   optional: [key_2, key_3, ..., key_MAX]
+// All key_N are declared so ComfyUI's queue-time input dispatch routes their
+// values into Python's **kwargs (see FalGatewayJsonExtractMany docstring for
+// the input-dropping invariant). DYNAMIC = the key_2..key_MAX widgets that
+// this extension splices in/out of node.widgets based on key_count — the
+// declarations exist for routing, the splice exists for visibility.
+// Order at save: [key_count, default, key_1, key_2, ..., key_N (visible)]
+//   widgets_values is positional, so on load ComfyUI fills the auto-created
+//   widgets from values[0..]; we also read values[3..] back into a sidecar
+//   Map keyed by name to restore values for splice/re-add round trips.
 // MUST stay in sync with FalGatewayJsonExtractMany.MAX_OUTPUTS.
 const JSON_EXTRACT_MANY_NODE = "FalGatewayJsonExtractMany";
 const MAX_JSON_EXTRACT_OUTPUTS = 10;
 // Static widget count from INPUT_TYPES required: key_count, default, key_1.
 // json_string is forceInput=True so it's a socket, not a widget — excluded.
 const JSON_EXTRACT_STATIC_WIDGET_COUNT = 3;
+
+// True for any key_N widget where N >= 2 — i.e., the ones the splice manages.
+// Identifying by name (not by an _falDynamic flag) is mandatory: ComfyUI
+// auto-creates these widgets from INPUT_TYPES at node init, so they exist
+// before any JS code can flag them. Filtering by flag would leave them all
+// visible because the flag was never set on the auto-created instances.
+function isDynamicKeyWidget(w) {
+  if (!w?.name) return false;
+  const m = w.name.match(/^key_(\d+)$/);
+  return m !== null && parseInt(m[1], 10) >= 2;
+}
 
 function renameJsonExtractOutput(node, idx, keyValue) {
   if (!node.outputs || !node.outputs[idx]) return;
@@ -131,7 +146,6 @@ function makeDynamicKeyWidget(node, i, value) {
   // node.addWidget appends to the end of node.widgets — that's exactly
   // where we want it (after all static widgets), so no splice/reorder.
   const w = node.addWidget("text", `key_${i}`, value || "", null, {});
-  w._falDynamic = true;
   const idx = i - 1;
   w.callback = function (val) {
     renameJsonExtractOutput(node, idx, val);
@@ -151,15 +165,17 @@ function syncJsonExtractMany(node, count) {
   //    onConfigure → loadDynamicKeysFromConfig.)
   const sidecar = node._falKeySidecar || new Map();
   for (const w of node.widgets || []) {
-    if (w?._falDynamic) sidecar.set(w.name, w.value);
+    if (isDynamicKeyWidget(w)) sidecar.set(w.name, w.value);
   }
   node._falKeySidecar = sidecar;
 
   // 2. Remove ALL dynamic widgets from node.widgets — splice, not hide.
   //    This is the actual fix: removed widgets aren't in the layout, can't
-  //    be clicked, can't fire popups, can't claim a Y position.
+  //    be clicked, can't fire popups, can't claim a Y position. Includes
+  //    the auto-created instances from INPUT_TYPES (no _falDynamic flag) —
+  //    matched by name pattern via isDynamicKeyWidget.
   if (node.widgets) {
-    node.widgets = node.widgets.filter((w) => !w?._falDynamic);
+    node.widgets = node.widgets.filter((w) => !isDynamicKeyWidget(w));
   }
 
   // 3. Add key_2..key_N back. addWidget appends, so order becomes
