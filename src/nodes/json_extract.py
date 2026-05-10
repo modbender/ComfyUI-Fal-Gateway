@@ -87,21 +87,29 @@ class FalGatewayJsonExtractMany:
       - `key_1`..`key_N`: single-line STRING widgets, one per active row
       - N output sockets named after each key's current value
 
-    INPUT_TYPES declares ONLY the static widgets (`key_count`, `default`,
-    `key_1`). The JS extension in `web/fal_gateway.js` adds `key_2`..`key_N`
-    via `node.addWidget` when the user dials key_count up, and removes
-    them via `node.widgets.splice` when the user dials it down — same
-    pattern as M4's per-model dynamic widgets in this codebase. This
-    avoids the LiteGraph quirk where setting widget.type="hidden" +
-    computeSize=[0,-4] doesn't actually disable hit testing — clicks
-    were still triggering edits on widgets that looked invisible.
+    INPUT_TYPES declares ALL `key_N` widgets (key_1 in required, key_2..N
+    in optional). This is non-negotiable: ComfyUI's get_input_info()
+    drops widget values whose names aren't in INPUT_TYPES (see
+    comfy_execution/graph.py:84-94 + execution.py:184). If we only
+    declared key_1 and added key_2..N dynamically by JS, ComfyUI's
+    queue would silently drop the user's typed values for key_2..N
+    and Python's **kwargs would only ever see key_1 — every output
+    past the first comes back empty. (M4's per-model widgets paper
+    over the same drop with kwargs.get(name, w.default) fallback to
+    the OpenAPI schema default; we don't have that fallback here.)
 
-    Python execute() takes `key_count` and reads `key_1`..`key_N` from
-    **kwargs (all dynamic widget values arrive that way — same as M4
-    base.py). Always returns exactly `MAX_OUTPUTS` strings.
+    The JS extension in `web/fal_gateway.js` still splices the excess
+    key_N widgets OUT of node.widgets when key_count drops, which
+    keeps them off-canvas and out of LiteGraph's hit-test path. The
+    INPUT_TYPES declaration is purely for ComfyUI's input-routing —
+    the widgets exist briefly at node init, JS rearranges them, and
+    only the visible ones are sent to Python at queue time.
 
-    Bumping `MAX_OUTPUTS` requires bumping the matching JS constant. A
-    metadata test pins the contract.
+    Always returns exactly `MAX_OUTPUTS` strings — slots beyond the
+    active key_count get the `default` value. Bumping `MAX_OUTPUTS`
+    requires bumping the matching JS constant. A metadata test pins
+    both the count contract AND the "all key_N must be declared"
+    invariant as canaries.
     """
 
     CATEGORY = "Fal-Gateway"
@@ -113,27 +121,31 @@ class FalGatewayJsonExtractMany:
 
     @classmethod
     def INPUT_TYPES(cls) -> dict[str, Any]:
-        # Only the STATIC widgets here. key_2..key_MAX_OUTPUTS are added
-        # dynamically by JS based on key_count. `default` lives in required
-        # (not optional) so widget order at save time stays stable:
-        #   [key_count, default, key_1, <dynamic key_2..key_N>]
-        # On load, ComfyUI reconstructs the 3 static widgets and applies
-        # widgets_values[0..2] to them; the JS extension reads the trailing
-        # values[3..] back into a sidecar Map so dynamic key values restore.
-        return {
-            "required": {
-                "json_string": (
-                    "STRING",
-                    {"default": "", "multiline": True, "forceInput": True},
-                ),
-                "key_count": (
-                    "INT",
-                    {"default": 1, "min": 1, "max": cls.MAX_OUTPUTS, "step": 1},
-                ),
-                "default": ("STRING", {"default": ""}),
-                "key_1": ("STRING", {"default": ""}),
-            },
+        # ALL key_N widgets MUST be declared here, even though the JS
+        # extension dynamically shows/hides them based on key_count. See
+        # the class docstring for the ComfyUI input-dropping invariant.
+        # Static widget order at save time:
+        #   required: [key_count, default, key_1]   (json_string is forceInput → socket)
+        #   optional: [key_2, key_3, ..., key_10]
+        # widgets_values is positional, so on load values[0..2] map to
+        # the 3 required widgets, values[3..] to the visible key_N up to
+        # whatever count was saved. JS in onConfigure splices the rest.
+        required: dict[str, Any] = {
+            "json_string": (
+                "STRING",
+                {"default": "", "multiline": True, "forceInput": True},
+            ),
+            "key_count": (
+                "INT",
+                {"default": 1, "min": 1, "max": cls.MAX_OUTPUTS, "step": 1},
+            ),
+            "default": ("STRING", {"default": ""}),
+            "key_1": ("STRING", {"default": ""}),
         }
+        optional: dict[str, Any] = {}
+        for i in range(2, cls.MAX_OUTPUTS + 1):
+            optional[f"key_{i}"] = ("STRING", {"default": ""})
+        return {"required": required, "optional": optional}
 
     def execute(
         self,

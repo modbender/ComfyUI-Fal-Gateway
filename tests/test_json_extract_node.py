@@ -204,10 +204,14 @@ def test_many_node_metadata_shape():
     The JS extension relies on this contract — if MAX_OUTPUTS bumps here, it
     must bump in fal_gateway.js too. This test is the canary.
 
-    Pins the static INPUT_TYPES shape: ONLY key_count + default + key_1 are
-    declared. key_2..key_MAX_OUTPUTS are added by the JS extension at runtime
-    via node.addWidget when key_count grows (mirrors M4's per-model dynamic
-    widget pattern)."""
+    Pins the INPUT_TYPES shape: ALL key_N widgets MUST be declared, even
+    though the JS extension splices key_2..N out of node.widgets when
+    key_count is low. ComfyUI's get_input_info() (comfy_execution/graph.py)
+    returns (None, None, None) for inputs not in INPUT_TYPES, then
+    execution.py drops those values from input_data_all before they reach
+    the node's execute() — so an undeclared widget's user-typed value
+    silently disappears, and **kwargs only ever sees the static widgets.
+    This test pins the invariant as a regression canary."""
     cls = FalGatewayJsonExtractMany
     assert cls.MAX_OUTPUTS == 10
     assert len(cls.RETURN_TYPES) == cls.MAX_OUTPUTS
@@ -218,14 +222,11 @@ def test_many_node_metadata_shape():
     assert cls.CATEGORY.startswith("Fal-Gateway")
 
     spec = cls.INPUT_TYPES()
-    # All static widgets in `required` for stable widget order at save time
-    # (no `optional` block — `default` is moved to required so save order is
-    # [key_count, default, key_1, <dynamic key_N>]). Stability matters
-    # because widgets_values is positional, and the JS extension reads
-    # values past the static count back into a sidecar Map.
-    assert "optional" not in spec or not spec["optional"], (
-        "all widgets must be in `required` so save order stays stable"
-    )
+    # Static widgets in `required`; key_1 is here so the row always shows
+    # at minimum count. Save order at queue time is positional:
+    #   [key_count, default, key_1, key_2, ..., key_N (visible)]
+    # JS handles show/hide via splice — INPUT_TYPES is the routing
+    # declaration, not the visibility model.
     assert "json_string" in spec["required"]
     assert "key_count" in spec["required"]
     assert "default" in spec["required"]
@@ -239,11 +240,20 @@ def test_many_node_metadata_shape():
     assert kc_meta["step"] == 1
     assert kc_meta["default"] == 1
 
-    # key_2..key_MAX_OUTPUTS are NOT in INPUT_TYPES — they're added
-    # dynamically by JS. The JS-side add MUST stay in sync with this
-    # absence; if you ever move them back into INPUT_TYPES, the splice
-    # logic in fal_gateway.js will recreate the bug it was written to fix.
+    # ALL key_N widgets MUST be declared in INPUT_TYPES — key_2..MAX
+    # live in `optional` so they don't force a connection requirement.
+    # If you ever delete these declarations, ComfyUI's input dispatch
+    # (execution.py:~184 + comfy_execution/graph.py:get_input_info)
+    # will silently drop the user-typed values and execute() will only
+    # ever receive key_1 — every output past the first comes back empty.
+    assert "optional" in spec, "key_2..N declarations live in `optional`"
     for i in range(2, cls.MAX_OUTPUTS + 1):
-        assert f"key_{i}" not in spec["required"], (
-            f"key_{i} must be added dynamically by JS, not declared in INPUT_TYPES"
+        key_name = f"key_{i}"
+        assert key_name in spec["optional"], (
+            f"{key_name} MUST be declared in INPUT_TYPES.optional — "
+            f"ComfyUI drops undeclared widget values before they reach "
+            f"execute(). See class docstring for the full invariant."
         )
+        ktype, kmeta = spec["optional"][key_name]
+        assert ktype == "STRING"
+        assert kmeta.get("default") == ""
