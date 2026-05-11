@@ -53,6 +53,11 @@ Icon = ""
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Project root on sys.path so `from src.X import Y` works in tests. Needed
+# because there's no [build-system] declared, so `uv sync` doesn't install
+# the project itself in editable mode — without this, fresh-clone test runs
+# fail with `ModuleNotFoundError: No module named 'src'`.
+pythonpath = ["."]
 markers = [
     "integration: tests that hit the live fal.ai API (opt-in via -m integration; skipped by default)",
 ]

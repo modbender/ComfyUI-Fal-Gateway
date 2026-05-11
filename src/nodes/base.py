@@ -230,7 +230,20 @@ class _FalGatewayNodeBase:
         # "image", "image_1") onto entry.widgets (keyed by OpenAPI property
         # names like "image_url", "image_urls"). Named match wins; unmatched
         # entry widgets pull positionally from declared static sockets.
-        image_widgets = [w for w in entry.widgets if w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY")]
+        # IMAGE_ARRAY widgets (multi_ref endpoints) collect ALL remaining
+        # wired sockets into a list — popping just one would silently drop
+        # the rest of the user's reference images.
+        # REQUIRED widgets get positional fallback BEFORE optional ones —
+        # for FLF endpoints whose OpenAPI property order is `end_image_url`
+        # (opt) before `start_image_url` (req) (kling-video v2.6/v3, etc.),
+        # the user's lone `image` socket should fill the required start, not
+        # the optional end. Without this sort the required slot stays empty
+        # and the loop raises "required image input 'start_image_url' not
+        # connected" — every kling-video v2.6+/v3 I2V dispatch was broken.
+        image_widgets = sorted(
+            (w for w in entry.widgets if w.kind in ("IMAGE_INPUT", "IMAGE_ARRAY")),
+            key=lambda w: 0 if w.required else 1,
+        )
         cls = type(self)
         static_socket_names = (
             list(cls.image_socket_names()) + list(cls.optional_image_socket_names())
@@ -240,9 +253,31 @@ class _FalGatewayNodeBase:
         unused_static = list(wired_static)
 
         for w in image_widgets:
+            if w.kind == "IMAGE_ARRAY":
+                # Explicit kwargs[w.name] wins (single tensor or list); else
+                # collect every remaining wired static socket into the array.
+                named = kwargs.get(w.name)
+                if isinstance(named, list):
+                    tensors = list(named)
+                elif named is not None:
+                    tensors = [named]
+                else:
+                    tensors = [kwargs[s] for s in unused_static]
+                    unused_static.clear()
+                if not tensors:
+                    if w.required:
+                        raise RuntimeError(
+                            f"required image input {w.name!r} not connected"
+                        )
+                    continue
+                payload[w.fal_key] = [
+                    await upload_tensor_image(t) for t in tensors
+                ]
+                continue
+
+            # IMAGE_INPUT (single)
             tensor = kwargs.get(w.name)
             if tensor is None and unused_static:
-                # No exact name match — pull the next wired static socket.
                 tensor = kwargs[unused_static.pop(0)]
             elif tensor is not None and w.name in unused_static:
                 unused_static.remove(w.name)
@@ -250,11 +285,7 @@ class _FalGatewayNodeBase:
                 if w.required:
                     raise RuntimeError(f"required image input {w.name!r} not connected")
                 continue
-            url = await upload_tensor_image(tensor)
-            if w.kind == "IMAGE_ARRAY":
-                payload[w.fal_key] = [url]
-            else:
-                payload[w.fal_key] = url
+            payload[w.fal_key] = await upload_tensor_image(tensor)
 
         # 3. Non-image widgets — M1 uses WidgetSpec defaults; M4 will read from kwargs once
         #    the frontend renders these widgets dynamically.
@@ -276,6 +307,11 @@ class _FalGatewayNodeBase:
                 continue
             payload[k] = v
 
-        # 4. Endpoint-specific payload reshape (e.g. OpenAI chat-completions
-        #    expects {messages: [{role, content}]} not flat {prompt}).
-        return apply_payload_transformer(entry.id, payload)
+        # NOTE: do NOT call apply_payload_transformer here. The transformer
+        # runs exactly once in execute(), AFTER catalog extra_payload merge
+        # and apply_schema_to_payload. Calling it here as well caused a
+        # double-transform that wiped out the user's system+user prompt
+        # whenever schema mode was active (the second call rebuilt messages
+        # from only the schema-augmented system_prompt). See
+        # tests/test_build_payload.py::test_t2t_runtime_path_with_live_chat_entry_preserves_user_prompts.
+        return payload
