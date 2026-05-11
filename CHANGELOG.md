@@ -2,6 +2,13 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.4](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.3...v0.3.4) (2026-05-11)
+
+
+### Features
+
+* add JSON Extract Multiple + I2T system_prompt + image fixes ([#5](https://github.com/modbender/ComfyUI-Fal-Gateway/issues/5)) ([f87fd6d](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/f87fd6df1b9e343da35c2bcc1e193bab771d7ff2))
+
 ## [0.3.3](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.2...v0.3.3) (2026-05-09)
 
 
