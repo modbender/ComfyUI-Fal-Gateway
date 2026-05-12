@@ -2,6 +2,13 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.5](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.4...v0.3.5) (2026-05-12)
+
+
+### Bug Fixes
+
+* recover legacy off-by-one widgets_values on JsonExtractMany load ([#7](https://github.com/modbender/ComfyUI-Fal-Gateway/issues/7)) ([d7aec9d](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/d7aec9d49d38d2fa17532704903ca1707b2f5577))
+
 ## [0.3.4](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.3...v0.3.4) (2026-05-11)
 
 
