@@ -238,6 +238,48 @@ function patchKey1Callback(node) {
   w.__falKey1Patched = true;
 }
 
+// Detect-and-repair guard for the off-by-one widgets_values misalignment
+// some legacy workflows have. When the JSON file's widgets_values is short
+// by one entry at the START (the leading `key_count` slot is missing),
+// every value lands in the wrong slot: key_count gets the (string) default
+// value, `default` gets the intended key_1 value, and so on. Symptom in
+// the UI: key_count widget shows blank, values appear shifted one slot up.
+//
+// Repair: prepend a synthesized count to widgets_values, then re-apply
+// values to widgets so they land where the user typed them. Idempotent —
+// once aligned, subsequent loads/saves keep the corrected format.
+//
+// Detection rule: widgets_values[0] is a string AND not a positive-integer
+// string. (`key_count` is INT-typed, so any non-number there is the bug
+// signature. We coerce numeric-strings in place rather than treating them
+// as misaligned, which avoids spurious fixes.)
+function repairLegacyWidgetsValuesShift(node) {
+  const wv = node.widgets_values;
+  if (!Array.isArray(wv) || wv.length === 0) return false;
+  const v0 = wv[0];
+  if (typeof v0 === "number") return false;
+  if (typeof v0 === "string" && /^\d+$/.test(v0.trim())) {
+    // Numeric string — coerce in place, no shift needed.
+    wv[0] = parseInt(v0.trim(), 10);
+    return false;
+  }
+  // Genuine misalignment. Synthesize count = remaining slots minus the
+  // `default` slot. Clamp to the declared range.
+  const inferredCount = Math.max(
+    1,
+    Math.min(MAX_JSON_EXTRACT_OUTPUTS, wv.length - 1),
+  );
+  const corrected = [inferredCount, ...wv];
+  node.widgets_values = corrected;
+  // Re-apply to widgets positionally — ComfyUI already populated them
+  // from the bad (shifted) array, so overwrite with the corrected one.
+  const widgets = node.widgets || [];
+  for (let i = 0; i < widgets.length && i < corrected.length; i++) {
+    if (widgets[i]) widgets[i].value = corrected[i];
+  }
+  return true;
+}
+
 function loadDynamicKeysFromConfig(node) {
   // onConfigure has populated node.widgets_values from the saved workflow
   // JSON. The first JSON_EXTRACT_STATIC_WIDGET_COUNT entries map to the
@@ -272,6 +314,9 @@ app.registerExtension({
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function (...args) {
       const r = onConfigure?.apply(this, args);
+      // Detect and repair legacy off-by-one widgets_values BEFORE the
+      // downstream loads — see repairLegacyWidgetsValuesShift docstring.
+      repairLegacyWidgetsValuesShift(this);
       // Restored workflow: pull saved dynamic-key values out of
       // widgets_values BEFORE syncJsonExtractMany rebuilds the widgets.
       loadDynamicKeysFromConfig(this);
