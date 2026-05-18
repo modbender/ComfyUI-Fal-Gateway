@@ -45,34 +45,50 @@ def load_fallback() -> list[ModelEntry]:
     return [ModelEntry.from_dict(m) for m in data.get("models", [])]
 
 
-def load_if_fresh() -> list[ModelEntry] | None:
-    """Read `cache/catalog.json` if present, fresh, and schema-current.
+def load_any() -> tuple[list[ModelEntry] | None, bool]:
+    """Read the cache regardless of TTL. Returns `(models, is_stale)`.
 
-    Returns None when the cache is missing, stale, or unreadable — caller
-    should fall through to a live fetch.
+    `models` is None when the cache is missing, unreadable, or on a wrong
+    schema (those force a real refetch). `is_stale` is True when the file
+    is older than `CACHE_TTL_SECONDS` — callers use it to decide whether
+    to kick off a background refresh.
     """
     if not CACHE_PATH.exists():
-        return None
+        return None, True
     try:
         age = time.time() - CACHE_PATH.stat().st_mtime
-        if age > CACHE_TTL_SECONDS:
-            _log.info("cached catalog is stale (%.1f days old); refetching", age / 86400)
-            return None
         cache = CatalogCacheFile.model_validate_json(
             CACHE_PATH.read_text(encoding="utf-8")
         )
     except (OSError, ValidationError, ValueError) as exc:
         _log.warning("cache read failed: %s", exc)
-        return None
+        return None, True
     if cache.schema_version != SCHEMA_VERSION:
         _log.info(
             "cache schema_version %s != %s; refetching",
             cache.schema_version,
             SCHEMA_VERSION,
         )
-        return None
+        return None, True
     models = [ModelEntry.from_dict(raw) for raw in cache.models]
-    _log.info("loaded %d models from cache (age %.1f hours)", len(models), age / 3600)
+    is_stale = age > CACHE_TTL_SECONDS
+    _log.info(
+        "loaded %d models from cache (age %.1f hours, %s)",
+        len(models),
+        age / 3600,
+        "stale" if is_stale else "fresh",
+    )
+    return models, is_stale
+
+
+def load_if_fresh() -> list[ModelEntry] | None:
+    """Read the cache only when present, fresh, and schema-current.
+
+    Thin wrapper over `load_any()` for callers that want strict freshness.
+    """
+    models, is_stale = load_any()
+    if models is None or is_stale:
+        return None
     return models
 
 

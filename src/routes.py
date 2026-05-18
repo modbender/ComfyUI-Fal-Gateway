@@ -12,7 +12,6 @@ Routes are registered against `PromptServer.instance.routes` in `__init__.py`.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import logging
@@ -22,6 +21,7 @@ from aiohttp import web
 from pydantic import BaseModel
 
 from . import model_registry
+from .catalogs import _openrouter_shared
 from .models import (
     ErrorResponse,
     HealthResponse,
@@ -29,7 +29,10 @@ from .models import (
     RefreshResponse,
     SchemaResponse,
 )
-from .storage import catalog as catalog_cache, pricing as pricing_cache
+from .storage import (
+    _background,
+    pricing as pricing_cache,
+)
 
 
 _log = logging.getLogger("fal_gateway.routes")
@@ -65,35 +68,33 @@ def decode_model_id_b64(b64: str) -> str:
 def register_routes(routes: web.RouteTableDef) -> None:
     @routes.post("/fal_gateway/refresh")
     async def refresh_catalog(request: web.Request) -> web.Response:
-        try:
-            deleted = catalog_cache.clear()
-        except OSError as exc:
-            _log.warning("could not delete catalog cache: %s", exc)
-            return _err(f"could not delete cache: {exc}", status=500)
+        """Kick off background refreshes for both the fal catalog and the
+        OpenRouter catalog. Returns 200 immediately — the response thread
+        never waits on a network roundtrip, and ComfyUI's UI thread keeps
+        serving the existing dropdowns while the refresh runs.
 
-        model_registry.reload()
-
-        # Kick off a refetch in a worker thread so the next ComfyUI restart
-        # finds a warm cache. We don't block the response on it.
-        loop = asyncio.get_running_loop()
-
-        def _warm_cache() -> int:
-            try:
-                return len(model_registry.all_models())
-            except Exception as exc:  # noqa: BLE001
-                _log.warning("background refetch failed: %s", exc)
-                return -1
-
-        loop.run_in_executor(None, _warm_cache)
+        The fresh data lands on disk; the next ComfyUI restart picks it
+        up. We deliberately do NOT clear the cache or call
+        `model_registry.reload()` — both would force the next UI request
+        to block on a synchronous fetch, which is exactly the "stuck"
+        symptom this route used to cause.
+        """
+        fal_started = _background.kick_off(
+            "fal-catalog-refresh", model_registry._refresh_catalog_to_disk
+        )
+        openrouter_started = _background.kick_off(
+            "openrouter-refresh", _openrouter_shared._refresh_to_disk
+        )
 
         return _ok(
             RefreshResponse(
-                deleted=deleted,
+                deleted=False,
                 message=(
-                    "Cache cleared. A fresh fetch has started in the background. "
-                    "Restart ComfyUI to see the updated model dropdowns "
-                    "(existing placed nodes keep their old dropdown options "
-                    "until you re-add them or restart)."
+                    "Background refresh started "
+                    f"(fal: {'queued' if fal_started else 'already running'}, "
+                    f"openrouter: {'queued' if openrouter_started else 'already running'}). "
+                    "ComfyUI stays responsive. Restart to see the updated "
+                    "model dropdowns once the refresh completes."
                 ),
             )
         )

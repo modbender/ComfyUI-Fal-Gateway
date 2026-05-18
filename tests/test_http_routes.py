@@ -139,26 +139,40 @@ async def test_health_route_reports_no_key_when_unset(client, monkeypatch):
 # ---- /fal_gateway/refresh ---------------------------------------------
 
 
-async def test_refresh_route_returns_ok_when_cache_absent(client):
-    """Idempotent: refresh against an empty cache succeeds + reports deleted=False."""
+async def test_refresh_route_returns_ok_and_queues_background_work(client, monkeypatch):
+    """Refresh is non-blocking: it queues background refreshes and returns
+    200 immediately. `deleted` is always False under SWR — we no longer
+    delete the cache up-front (that would force the next UI request to
+    block on a synchronous fetch)."""
+    queued = []
+
+    def fake_kick(name, fn):
+        queued.append(name)
+        return True
+
+    from src.storage import _background
+
+    monkeypatch.setattr(_background, "kick_off", fake_kick)
     res = await client.post("/fal_gateway/refresh")
     assert res.status == 200
     body = await res.json()
     assert body["ok"] is True
     assert body["deleted"] is False
-    assert "Cache cleared" in body["message"] or "background" in body["message"]
+    assert "background" in body["message"].lower()
+    assert "fal-catalog-refresh" in queued
+    assert "openrouter-refresh" in queued
 
 
-async def test_refresh_route_deletes_existing_cache(client, monkeypatch, tmp_path):
-    """When a cache file is present, refresh removes it and reports deleted=True."""
+async def test_refresh_route_leaves_cache_in_place(client, monkeypatch, tmp_path):
+    """SWR contract: refresh never deletes the on-disk cache. The fresh
+    fetch overwrites it when the background thread finishes; until then,
+    the stale data keeps serving ComfyUI without a startup hitch."""
     cache_path = tmp_path / "catalog.json"
     cache_path.write_text("{}")
     monkeypatch.setattr(catalog_cache, "CACHE_PATH", cache_path)
     res = await client.post("/fal_gateway/refresh")
-    body = await res.json()
-    assert body["ok"] is True
-    assert body["deleted"] is True
-    assert not cache_path.exists()
+    assert res.status == 200
+    assert cache_path.exists()
 
 
 # ---- /fal_gateway/pricing_refresh -------------------------------------

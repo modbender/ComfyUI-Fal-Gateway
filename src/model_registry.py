@@ -164,8 +164,15 @@ def _merge(curated: list[ModelEntry], live: list[ModelEntry]) -> list[ModelEntry
 def _do_load() -> list[ModelEntry]:
     fallback = catalog_cache.load_fallback()
 
-    cached = catalog_cache.load_if_fresh()
+    cached, is_stale = catalog_cache.load_any()
     if cached is not None:
+        if is_stale:
+            # Stale-while-revalidate: hand back what we have, refresh on a
+            # background thread so the *next* ComfyUI start sees fresh data.
+            # The current session keeps using the stale list — no blocking
+            # network call from a UI request path.
+            from .storage import _background
+            _background.kick_off("fal-catalog-refresh", _refresh_catalog_to_disk)
         return _merge(fallback, cached)
 
     live = _live_fetch()
@@ -176,6 +183,18 @@ def _do_load() -> list[ModelEntry]:
 
     _log.info("falling back to bundled %d-model catalog", len(fallback))
     return fallback
+
+
+def _refresh_catalog_to_disk() -> None:
+    """Background worker: fetch the latest fal catalog and overwrite the
+    on-disk cache. Does NOT swap the in-memory `_models` — that would
+    require coordinating with any in-flight schema requests. The next
+    ComfyUI restart picks up the fresh data, which matches user mental
+    model of "refresh writes to cache, restart to see changes"."""
+    fallback = catalog_cache.load_fallback()
+    live = _live_fetch()
+    if live is not None:
+        catalog_cache.write(_merge(fallback, live))
 
 
 def _load() -> list[ModelEntry]:

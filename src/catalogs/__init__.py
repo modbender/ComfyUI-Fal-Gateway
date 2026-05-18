@@ -26,21 +26,34 @@ from ..widget_spec import ModelEntry
 from . import i2t, t2t
 
 
-_CATEGORY_CURATED: dict[str, list[CatalogEntry]] = {
-    "llm": t2t.CURATED,
-    "vision": i2t.CURATED,
-}
+# Maps category → module that exports the dynamic `CURATED` list. Looked up
+# at CALL time, not import time — `t2t.CURATED` and `i2t.CURATED` are rebuilt
+# whenever someone calls `_build_curated()` after the openrouter cache refreshes,
+# so we must dereference fresh on every catalog build (otherwise tests that
+# patch `t2t.CURATED` would see stale captured references).
+_CATEGORY_MODULES = {"llm": t2t, "vision": i2t}
 
-_CATEGORY_HIDDEN: dict[str, frozenset[str]] = {
-    "llm": t2t.HIDDEN_ENDPOINTS,
-    "vision": i2t.HIDDEN_ENDPOINTS,
-}
+
+def _curated_for(category: str) -> list[CatalogEntry]:
+    """Resolve the CURATED list for a category at call time."""
+    mod = _CATEGORY_MODULES.get(category)
+    return mod.CURATED if mod is not None else []
+
+
+def _hidden_for(category: str) -> frozenset[str]:
+    mod = _CATEGORY_MODULES.get(category)
+    return mod.HIDDEN_ENDPOINTS if mod is not None else frozenset()
+
+
+def _hidden_suffixes_for(category: str) -> tuple[str, ...]:
+    mod = _CATEGORY_MODULES.get(category)
+    return getattr(mod, "HIDDEN_ENDPOINT_SUFFIXES", ()) if mod is not None else ()
 
 
 def has_curated_catalog(category: str) -> bool:
     """True if the category uses a flat curated catalog instead of the
     live `model_registry.list_display_strings` dropdown."""
-    return category in _CATEGORY_CURATED
+    return category in _CATEGORY_MODULES
 
 
 def build_catalog(
@@ -57,8 +70,9 @@ def build_catalog(
 
     Sorted by (provider, display_name) so the UI clusters by provider.
     """
-    curated = _CATEGORY_CURATED.get(category, [])
-    hidden = _CATEGORY_HIDDEN.get(category, frozenset())
+    curated = _curated_for(category)
+    hidden = _hidden_for(category)
+    hidden_suffixes = _hidden_suffixes_for(category)
 
     out: list[CatalogEntry] = list(curated)
     # Endpoints already covered by a curated row WITHOUT extra_payload —
@@ -69,6 +83,8 @@ def build_catalog(
 
     for entry in live:
         if entry.id in hidden or entry.id in direct_curated:
+            continue
+        if hidden_suffixes and entry.id.endswith(hidden_suffixes):
             continue
         provider = extract_provider(entry.id) or "unknown"
         out.append(

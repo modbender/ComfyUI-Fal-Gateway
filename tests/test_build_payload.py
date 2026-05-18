@@ -420,11 +420,19 @@ def test_i2t_openrouter_vision_e2e_payload(monkeypatch):
         "id": "anthropic/claude-sonnet-4.5",
         "name": "Claude Sonnet 4.5",
         "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
         "description": "",
     }]
-    monkeypatch.setattr(i2t, "_load_openrouter_models", lambda: fake_or_models)
+    # `_load_openrouter_models` was inlined into `_openrouter_shared.load_models`
+    # and re-exported as `i2t.load_models` via `from ... import` — patch the
+    # local binding so `i2t._build_curated()` picks up the stub.
+    monkeypatch.setattr(i2t, "load_models", lambda: fake_or_models)
     new_curated = i2t._build_curated()
-    monkeypatch.setitem(catalogs_pkg._CATEGORY_CURATED, "vision", new_curated)
+    # `_CATEGORY_CURATED` was replaced with dynamic lookups via
+    # `_CATEGORY_MODULES`; patch `i2t.CURATED` directly so the dynamic
+    # `_curated_for("vision")` lookup returns our stubbed list.
+    monkeypatch.setattr(i2t, "CURATED", new_curated)
+    _ = catalogs_pkg  # silence ruff F841 — kept for the explicit alias above
 
     # Empty live list isolates the test to the curated path.
     entry = catalogs_pkg.resolve("vision", "[Anthropic] Claude Sonnet 4.5", [])
