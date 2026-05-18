@@ -21,6 +21,31 @@ def test_write_then_load_round_trips(tmp_path, monkeypatch):
     assert loaded == models
 
 
+def test_load_any_returns_stale_cache_with_flag(tmp_path, monkeypatch):
+    """SWR contract: load_any returns stale data so callers can serve it
+    while a background refresh runs."""
+    cache_file = tmp_path / "openrouter.json"
+    cache_file.write_text(json.dumps({
+        "schema_version": cache.SCHEMA_VERSION,
+        "fetched_at": "2026-01-01T00:00:00+00:00",
+        "models": [{"id": "vendor/x", "name": "X"}],
+    }))
+    old = time.time() - cache.CACHE_TTL_SECONDS - 60
+    os.utime(cache_file, (old, old))
+    monkeypatch.setattr(cache, "CACHE_PATH", cache_file)
+    models, is_stale = cache.load_any()
+    assert models == [{"id": "vendor/x", "name": "X"}]
+    assert is_stale is True
+
+
+def test_load_any_returns_fresh_cache_with_flag(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "CACHE_PATH", tmp_path / "openrouter.json")
+    cache.write([{"id": "vendor/y", "name": "Y"}])
+    models, is_stale = cache.load_any()
+    assert models == [{"id": "vendor/y", "name": "Y"}]
+    assert is_stale is False
+
+
 def test_load_if_fresh_rejects_stale_cache(tmp_path, monkeypatch):
     cache_file = tmp_path / "openrouter.json"
     cache_file.write_text(json.dumps({

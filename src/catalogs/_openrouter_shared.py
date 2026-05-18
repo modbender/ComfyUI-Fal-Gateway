@@ -17,7 +17,7 @@ from typing import Any
 
 from ..models import CatalogEntry
 from ..openrouter import catalog as openrouter_catalog
-from ..storage import openrouter as openrouter_cache
+from ..storage import _background, openrouter as openrouter_cache
 
 
 # Provider IDs from OpenRouter that need a nicer display label. Anything not
@@ -34,19 +34,39 @@ PROVIDER_DISPLAY_OVERRIDES: dict[str, str] = {
 
 
 def load_models() -> list[dict[str, Any]]:
-    """Cache-first load. Falls back to live fetch (with retries) on miss
-    or stale cache; writes the fresh list back to disk on success.
+    """Stale-while-revalidate load.
+
+    - Cache present + fresh: return it, no network call.
+    - Cache present + stale: return the stale list immediately, refresh in
+      a background thread so the *next* ComfyUI start sees fresh data. The
+      current dropdown keeps working without waiting on the network.
+    - Cache absent / unreadable: synchronous live fetch (we have nothing
+      else to show, so blocking is acceptable here).
 
     Returns the FULL model list — callers filter by modality via
     `openrouter_catalog.filter_text_capable` / `filter_vision_capable`.
     """
-    cached = openrouter_cache.load_if_fresh()
+    cached, is_stale = openrouter_cache.load_any()
     if cached is not None:
+        if is_stale:
+            _background.kick_off("openrouter-refresh", _refresh_to_disk)
         return cached
     fresh = openrouter_catalog.fetch_all_models()
     if fresh:
         openrouter_cache.write(fresh)
     return fresh
+
+
+def _refresh_to_disk() -> None:
+    """Background worker: fetch the latest model list and overwrite the
+    cache. The in-memory CURATED lists on `t2t` / `i2t` were built at
+    import time and don't update here — the next ComfyUI restart picks up
+    the fresh data. (Hot-reload would require also rebuilding CURATED and
+    invalidating the live catalog merge cache, which adds complexity for
+    little gain since startup is fast once the cache is warm.)"""
+    fresh = openrouter_catalog.fetch_all_models()
+    if fresh:
+        openrouter_cache.write(fresh)
 
 
 def provider_from_id(model_id: str) -> str:

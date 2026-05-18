@@ -31,24 +31,34 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days, matches fal catalog TTL
 SCHEMA_VERSION = 2  # bumped from 1 (vision-only) to 2 (full model list w/ output_modalities)
 
 
-def load_if_fresh() -> list[dict] | None:
-    """Read the cache if present, fresh, and schema-current. None otherwise."""
+def load_any() -> tuple[list[dict] | None, bool]:
+    """Read the cache regardless of TTL. Returns `(models, is_stale)`.
+
+    `models` is None when missing, unreadable, or schema-wrong (those force
+    a real refetch). `is_stale` is True when the file is older than
+    `CACHE_TTL_SECONDS` — callers use it to decide whether to background-refresh.
+    """
     if not CACHE_PATH.exists():
-        return None
+        return None, True
     try:
         age = time.time() - CACHE_PATH.stat().st_mtime
-        if age > CACHE_TTL_SECONDS:
-            _log.info("openrouter cache stale (%.1f days); refetching", age / 86400)
-            return None
         data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         _log.warning("openrouter cache read failed: %s", exc)
-        return None
+        return None, True
     if data.get("schema_version") != SCHEMA_VERSION:
         _log.info("openrouter cache schema mismatch; refetching")
-        return None
+        return None, True
     models = data.get("models")
     if not isinstance(models, list):
+        return None, True
+    return models, age > CACHE_TTL_SECONDS
+
+
+def load_if_fresh() -> list[dict] | None:
+    """Read the cache only when present, fresh, and schema-current."""
+    models, is_stale = load_any()
+    if models is None or is_stale:
         return None
     return models
 

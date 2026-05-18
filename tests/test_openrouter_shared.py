@@ -85,21 +85,37 @@ def test_entry_for_falls_back_to_model_id_when_name_missing():
 
 
 def test_load_models_uses_cache_when_fresh():
-    """If the disk cache returns a non-None list, load_models returns it
-    without calling the live fetch."""
+    """If the disk cache returns a non-None fresh list, load_models returns
+    it without calling the live fetch or queuing a background refresh."""
     cached = [{"id": "vendor/a", "name": "A"}]
-    with patch.object(shared.openrouter_cache, "load_if_fresh", return_value=cached) as load_mock, \
-         patch.object(shared.openrouter_catalog, "fetch_all_models") as fetch_mock:
+    with patch.object(shared.openrouter_cache, "load_any", return_value=(cached, False)) as load_mock, \
+         patch.object(shared.openrouter_catalog, "fetch_all_models") as fetch_mock, \
+         patch.object(shared._background, "kick_off") as kick_mock:
         result = load_models()
     assert result == cached
     load_mock.assert_called_once()
     fetch_mock.assert_not_called()
+    kick_mock.assert_not_called()
+
+
+def test_load_models_returns_stale_and_kicks_off_background_refresh():
+    """Stale-while-revalidate: stale cache is returned immediately AND a
+    background refresh is queued so the next start sees fresh data."""
+    cached = [{"id": "vendor/a", "name": "A"}]
+    with patch.object(shared.openrouter_cache, "load_any", return_value=(cached, True)), \
+         patch.object(shared.openrouter_catalog, "fetch_all_models") as fetch_mock, \
+         patch.object(shared._background, "kick_off") as kick_mock:
+        result = load_models()
+    assert result == cached  # served immediately, no blocking fetch
+    fetch_mock.assert_not_called()  # background thread does the fetch, not us
+    kick_mock.assert_called_once()
+    assert kick_mock.call_args.args[0] == "openrouter-refresh"
 
 
 def test_load_models_falls_through_to_live_fetch_and_writes_back():
-    """Cache miss → live fetch → write result back to disk."""
+    """Cache empty → synchronous live fetch → write result back to disk."""
     fresh = [{"id": "vendor/b", "name": "B"}]
-    with patch.object(shared.openrouter_cache, "load_if_fresh", return_value=None), \
+    with patch.object(shared.openrouter_cache, "load_any", return_value=(None, True)), \
          patch.object(shared.openrouter_catalog, "fetch_all_models", return_value=fresh), \
          patch.object(shared.openrouter_cache, "write") as write_mock:
         result = load_models()
@@ -111,7 +127,7 @@ def test_load_models_does_not_write_back_empty_fetch_result():
     """If the live fetch fails (returns []), don't poison the cache with
     an empty list — leave any older cached file in place so the next
     successful fetch (or a manual refresh) can repopulate it."""
-    with patch.object(shared.openrouter_cache, "load_if_fresh", return_value=None), \
+    with patch.object(shared.openrouter_cache, "load_any", return_value=(None, True)), \
          patch.object(shared.openrouter_catalog, "fetch_all_models", return_value=[]), \
          patch.object(shared.openrouter_cache, "write") as write_mock:
         result = load_models()
