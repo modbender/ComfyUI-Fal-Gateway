@@ -2,6 +2,13 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.6](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.5...v0.3.6) (2026-05-18)
+
+
+### Features
+
+* dynamic OpenRouter T2T catalog + suffix-based I2T filter ([#9](https://github.com/modbender/ComfyUI-Fal-Gateway/issues/9)) ([694e74e](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/694e74e65df2f4eeabe4a1a625f0bf2039d6d9a0))
+
 ## [0.3.5](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.4...v0.3.5) (2026-05-12)
 
 
