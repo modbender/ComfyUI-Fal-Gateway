@@ -1,12 +1,17 @@
-"""Disk-backed cache for OpenRouter's vision-capable model list.
+"""Disk-backed cache for OpenRouter's FULL model list.
 
 Mirrors `storage/catalog.py`'s shape: schema-version-aware load, TTL freshness
-check, atomic write. The cached payload is a list of plain dicts (not
-ModelEntry) — these models live as CatalogEntry rows in catalogs/i2t.py, not
-as registry entries.
+check, atomic write. The cached payload is the unfiltered list of model dicts
+(`{id, name, input_modalities, output_modalities, description}`) parsed from
+`/api/v1/models`. Callers in `catalogs/t2t.py` and `catalogs/i2t.py` apply
+their own modality filters on read — keeping the cache shared means a single
+HTTP fetch serves both nodes.
 
-Cold start with no cache + offline: returns empty list. The I2T dropdown
-falls back to fal-direct vision models only.
+Schema v1 was vision-only; v2 stores the full list with output_modalities.
+Bumping the version forces a one-time refetch when an older cache is loaded.
+
+Cold start with no cache + offline: returns empty list. Both T2T and I2T
+dropdowns fall back to fal-direct entries only.
 """
 
 from __future__ import annotations
@@ -23,7 +28,7 @@ _PKG_ROOT = Path(__file__).resolve().parent.parent  # src/
 CACHE_PATH = _PKG_ROOT.parent / "cache" / "openrouter.json"
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 days, matches fal catalog TTL
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # bumped from 1 (vision-only) to 2 (full model list w/ output_modalities)
 
 
 def load_if_fresh() -> list[dict] | None:

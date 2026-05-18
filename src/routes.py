@@ -29,7 +29,11 @@ from .models import (
     RefreshResponse,
     SchemaResponse,
 )
-from .storage import catalog as catalog_cache, pricing as pricing_cache
+from .storage import (
+    catalog as catalog_cache,
+    openrouter as openrouter_cache,
+    pricing as pricing_cache,
+)
 
 
 _log = logging.getLogger("fal_gateway.routes")
@@ -71,6 +75,14 @@ def register_routes(routes: web.RouteTableDef) -> None:
             _log.warning("could not delete catalog cache: %s", exc)
             return _err(f"could not delete cache: {exc}", status=500)
 
+        # Also drop the OpenRouter cache so the T2T / I2T dropdowns rebuild
+        # from a fresh /api/v1/models fetch on next ComfyUI start. Failure
+        # here is non-fatal — the cache will refetch on its TTL anyway.
+        try:
+            openrouter_cache.clear()
+        except OSError as exc:
+            _log.warning("could not delete openrouter cache: %s", exc)
+
         model_registry.reload()
 
         # Kick off a refetch in a worker thread so the next ComfyUI restart
@@ -90,10 +102,10 @@ def register_routes(routes: web.RouteTableDef) -> None:
             RefreshResponse(
                 deleted=deleted,
                 message=(
-                    "Cache cleared. A fresh fetch has started in the background. "
-                    "Restart ComfyUI to see the updated model dropdowns "
-                    "(existing placed nodes keep their old dropdown options "
-                    "until you re-add them or restart)."
+                    "Fal + OpenRouter caches cleared. A fresh fetch has started "
+                    "in the background. Restart ComfyUI to see the updated model "
+                    "dropdowns (existing placed nodes keep their old dropdown "
+                    "options until you re-add them or restart)."
                 ),
             )
         )

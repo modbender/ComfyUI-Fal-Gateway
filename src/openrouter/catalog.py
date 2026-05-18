@@ -40,7 +40,8 @@ def _fetch_raw(timeout_s: float = DEFAULT_TIMEOUT_S) -> dict[str, Any]:
 
 
 def parse_models_response(raw: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalise the response into our minimal shape: {id, name, input_modalities, description}."""
+    """Normalise the response into our minimal shape:
+    `{id, name, input_modalities, output_modalities, description}`."""
     out: list[dict[str, Any]] = []
     for entry in raw.get("data") or []:
         if not isinstance(entry, dict):
@@ -49,13 +50,17 @@ def parse_models_response(raw: dict[str, Any]) -> list[dict[str, Any]]:
         if not model_id:
             continue
         arch = entry.get("architecture") or {}
-        modalities = arch.get("input_modalities") or []
-        if not isinstance(modalities, list):
-            modalities = []
+        input_modalities = arch.get("input_modalities") or []
+        output_modalities = arch.get("output_modalities") or []
+        if not isinstance(input_modalities, list):
+            input_modalities = []
+        if not isinstance(output_modalities, list):
+            output_modalities = []
         out.append({
             "id": str(model_id),
             "name": str(entry.get("name") or model_id),
-            "input_modalities": [str(m) for m in modalities if isinstance(m, str)],
+            "input_modalities": [str(m) for m in input_modalities if isinstance(m, str)],
+            "output_modalities": [str(m) for m in output_modalities if isinstance(m, str)],
             "description": str(entry.get("description") or ""),
         })
     return out
@@ -66,18 +71,33 @@ def filter_vision_capable(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [m for m in models if "image" in (m.get("input_modalities") or [])]
 
 
-def fetch_vision_models(timeout_s: float = DEFAULT_TIMEOUT_S) -> list[dict[str, Any]]:
-    """Fetch + parse + filter. Returns empty list on any failure (logged)."""
+def filter_text_capable(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep models whose output_modalities includes 'text'. The T2T node
+    needs models that return text — image-output-only models (e.g.
+    `gpt-5-image`) and audio-output-only models don't belong in the chat
+    dropdown even though they're OpenRouter entries."""
+    return [m for m in models if "text" in (m.get("output_modalities") or [])]
+
+
+def fetch_all_models(timeout_s: float = DEFAULT_TIMEOUT_S) -> list[dict[str, Any]]:
+    """Fetch + parse the full unfiltered model list. Returns empty list
+    on any failure (logged). Callers filter by modality as needed."""
     last_err: Exception | None = None
     for attempt, backoff in enumerate((0.0,) + RETRY_BACKOFF_S):
         if backoff > 0:
             time.sleep(backoff)
         try:
             raw = _fetch_raw(timeout_s=timeout_s)
-            return filter_vision_capable(parse_models_response(raw))
+            return parse_models_response(raw)
         except (urllib_error.URLError, urllib_error.HTTPError, TimeoutError, OSError) as exc:
             last_err = exc
             _log.warning("openrouter fetch attempt %d failed: %s", attempt + 1, exc)
             continue
     _log.warning("openrouter fetch exhausted retries: %s", last_err)
     return []
+
+
+def fetch_vision_models(timeout_s: float = DEFAULT_TIMEOUT_S) -> list[dict[str, Any]]:
+    """Convenience: fetch all + filter to vision-capable. Kept for
+    callers that don't need the full list."""
+    return filter_vision_capable(fetch_all_models(timeout_s=timeout_s))
