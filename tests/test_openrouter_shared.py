@@ -37,12 +37,26 @@ def test_provider_display_overrides_table_contents():
     assert PROVIDER_DISPLAY_OVERRIDES["deepseek"] == "DeepSeek"
 
 
+def test_entry_for_strips_provider_prefix_from_openrouter_name():
+    """OpenRouter names follow 'Provider: Model Name' — the provider prefix is
+    redundant with the bracketed label we add, so it must be stripped."""
+    model = {
+        "id": "google/gemini-3.1-flash-lite",
+        "name": "Google: Gemini 3.1 Flash Lite",
+        "input_modalities": ["text", "image"],
+        "output_modalities": ["text"],
+        "description": "",
+    }
+    entry = entry_for(model, "openrouter/router/vision")
+    assert entry.display_name == "[Google] Gemini 3.1 Flash Lite"
+
+
 def test_entry_for_builds_chat_completion_entry_with_override():
     """xAI / Meta / Mistral hit the override; the display label should
     use the override value not the Title-cased fallback."""
     model = {
         "id": "x-ai/grok-4.3",
-        "name": "Grok 4.3",
+        "name": "xAI: Grok 4.3",
         "input_modalities": ["text"],
         "output_modalities": ["text"],
         "description": "",
@@ -59,7 +73,7 @@ def test_entry_for_falls_back_to_title_cased_provider():
     hyphenated id. `google` → `Google`, `nvidia` → `Nvidia`, etc."""
     model = {
         "id": "google/gemini-2.5-pro",
-        "name": "Gemini 2.5 Pro",
+        "name": "Google: Gemini 2.5 Pro",
         "input_modalities": ["text", "image"],
         "output_modalities": ["text"],
         "description": "",

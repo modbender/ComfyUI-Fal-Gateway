@@ -92,7 +92,9 @@ def entry_for(model: dict[str, Any], endpoint_id: str) -> CatalogEntry:
     """
     model_id = model["id"]
     provider = provider_from_id(model_id)
-    display = model.get("name") or model_id
+    raw_name = model.get("name") or model_id
+    # OpenRouter names are "Provider: Model Name" — strip the redundant prefix.
+    display = raw_name.split(": ", 1)[1] if ": " in raw_name else raw_name
     return CatalogEntry(
         display_name=f"[{_display_provider(provider)}] {display}",
         endpoint_id=endpoint_id,
