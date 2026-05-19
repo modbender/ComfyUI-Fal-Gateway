@@ -2,6 +2,13 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.3.7](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.6...v0.3.7) (2026-05-19)
+
+
+### Bug Fixes
+
+* strip redundant provider prefix from OpenRouter display names ([22d8060](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/22d8060f1bc7805acac77df8b91a08ad0fd095e0))
+
 ## [0.3.6](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.5...v0.3.6) (2026-05-18)
 
 
