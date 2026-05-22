@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 from typing import Any, ClassVar
 
 from .. import catalogs, model_registry
@@ -212,6 +213,8 @@ class _FalGatewayNodeBase:
             for k, v in kwargs.items():
                 if v is None or v == "":
                     continue
+                if k == "seed" and v == -1:
+                    v = random.randint(0, 2147483647)
                 payload[k] = v
             return payload
 

@@ -260,6 +260,49 @@ async def test_catalog_dispatch_with_empty_system_prompt(node):
     assert payload["messages"] == [{"role": "user", "content": "What time is it?"}]
 
 
+async def test_build_payload_catalog_path_seed_minus_one_randomizes(node):
+    """`seed=-1` must be replaced with a random int — not left as -1 — so
+    each run produces a unique request body that busts OpenRouter's cache."""
+    payload = await node._build_payload(
+        None,
+        "Generate something.",
+        {"system_prompt": "Be creative.", "seed": -1},
+    )
+    assert "seed" in payload
+    assert payload["seed"] != -1
+    assert isinstance(payload["seed"], int)
+    assert 0 <= payload["seed"] <= 2147483647
+
+
+async def test_build_payload_catalog_path_seed_explicit_passes_through(node):
+    """An explicit non-(-1) seed must survive unchanged so callers can
+    reproduce a prior run by setting a fixed seed."""
+    payload = await node._build_payload(
+        None,
+        "Generate something.",
+        {"system_prompt": "Be creative.", "seed": 42},
+    )
+    assert payload["seed"] == 42
+
+
+async def test_build_payload_catalog_path_seed_in_final_api_payload(node):
+    """Seed survives the full build → merge → transform pipeline and lands
+    as a top-level key in the OpenRouter chat-completions body."""
+    from src.overrides import apply_payload_transformer
+
+    payload = await node._build_payload(
+        None,
+        "Hello.",
+        {"system_prompt": "Be terse.", "seed": 99},
+    )
+    payload = {**payload, **{"model": "anthropic/claude-sonnet-4.6"}}
+    payload = apply_payload_transformer(
+        "openrouter/router/openai/v1/chat/completions", payload
+    )
+    assert payload["seed"] == 99
+    assert "messages" in payload  # transformer still builds messages correctly
+
+
 async def test_build_payload_no_transform_for_other_endpoints(node):
     """Non-openrouter endpoints must NOT get the messages-shape transform applied."""
     entry = _t2v_entry([])
