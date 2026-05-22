@@ -32,4 +32,5 @@ class FalGatewayI2T(_FalGatewayNodeBase):
         return {
             "system_prompt": ("STRING", {"default": "", "multiline": True}),
             "schema": ("STRING", {"default": "", "multiline": True}),
+            "seed": ("INT", {"default": -1, "min": -1, "max": 2147483647}),
         }
