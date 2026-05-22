@@ -271,7 +271,7 @@ async def test_build_payload_catalog_path_seed_minus_one_randomizes(node):
     assert "seed" in payload
     assert payload["seed"] != -1
     assert isinstance(payload["seed"], int)
-    assert 0 <= payload["seed"] <= 2147483647
+    assert 0 <= payload["seed"] <= 4294967295
 
 
 async def test_build_payload_catalog_path_seed_explicit_passes_through(node):
@@ -288,8 +288,6 @@ async def test_build_payload_catalog_path_seed_explicit_passes_through(node):
 async def test_build_payload_catalog_path_seed_in_final_api_payload(node):
     """Seed survives the full build → merge → transform pipeline and lands
     as a top-level key in the OpenRouter chat-completions body."""
-    from src.overrides import apply_payload_transformer
-
     payload = await node._build_payload(
         None,
         "Hello.",

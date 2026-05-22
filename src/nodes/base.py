@@ -214,7 +214,7 @@ class _FalGatewayNodeBase:
                 if v is None or v == "":
                     continue
                 if k == "seed" and v == -1:
-                    v = random.randint(0, 2147483647)
+                    v = random.randint(0, 4294967295)
                 payload[k] = v
             return payload
 
