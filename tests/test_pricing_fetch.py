@@ -70,11 +70,14 @@ def test_batches_to_50_ids_per_request():
     with patch("src.fal.pricing.urllib_request.urlopen", _capture_urlopen(captured, respond)):
         fetch_all_pricing(ids)
 
+    # Filter to only pricing calls — urllib_request is a shared module object,
+    # so background SWR catalog threads (fal/openrouter) can land here too.
+    pricing_calls = [u for u in captured if "/pricing" in u]
     # 120 / 50 = 3 batches
-    assert len(captured) == 3
+    assert len(pricing_calls) == 3
     assert PRICING_BATCH_SIZE == 50
     # Each request should carry up to 50 ids.
-    for i, url in enumerate(captured):
+    for i, url in enumerate(pricing_calls):
         ids_param = url.split("endpoint_id=", 1)[1].split("&", 1)[0]
         # urlencode quotes commas, so split on the encoded delimiter
         count = ids_param.count("%2C") + 1 if ids_param else 0
