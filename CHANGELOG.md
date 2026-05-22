@@ -2,6 +2,20 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.4.0](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.7...v0.4.0) (2026-05-22)
+
+
+### Features
+
+* add seed widget to T2T and I2T nodes ([fd19dd3](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/fd19dd38f7934ba709340e6247a3ee9ed83f4d5c))
+
+
+### Bug Fixes
+
+* align seed max to UINT32, drop dead import in seed test ([f9354bd](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/f9354bd6fba1208d443296fe2003e4571001c85a))
+* filter pricing urlopen captures to avoid SWR thread pollution ([548f46a](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/548f46a6f05d3c539c2c534605bf8fe8c1ddb5b6))
+* resolve seed=-1 to random int in catalog-driven LLM dispatch ([c50abbc](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/c50abbcf1436f1ebc61f3d0cb0e4c81905ff2e32))
+
 ## [0.3.7](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.6...v0.3.7) (2026-05-19)
 
 
