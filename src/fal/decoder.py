@@ -19,6 +19,8 @@ import aiohttp
 import numpy as np
 from PIL import Image
 
+from ._http import validate_fetch_url
+
 if TYPE_CHECKING:
     import torch  # type: ignore[import-not-found]
 
@@ -179,6 +181,7 @@ def _decode_image_bytes_to_tensor(data: bytes) -> "torch.Tensor":
 
 async def fetch_image_as_tensor(url: str) -> "torch.Tensor":
     """Download an image URL and decode to ComfyUI tensor [1,H,W,3] in [0,1]."""
+    validate_fetch_url(url)
     timeout = aiohttp.ClientTimeout(total=_DOWNLOAD_TIMEOUT_S)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url) as response:
