@@ -196,3 +196,65 @@ def test_clear_removes_disk_file_and_resets_state(tmp_path):
     assert pricing_cache.get("fal-ai/flux/dev") is None
     assert not pricing_cache._CACHE_PATH.exists()
     assert pricing_cache.is_stale() is True
+
+
+def test_write_uses_unique_tmp_not_shared_suffix(tmp_path, monkeypatch):
+    """Concurrent writers must not share a fixed `.tmp` path."""
+    import os
+
+    fixed_tmp = pricing_cache._CACHE_PATH.with_suffix(".tmp")
+    captured: list[str] = []
+    real_replace = os.replace
+
+    def spy_replace(src, dst, *a, **k):
+        captured.append(str(src))
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(pricing_cache.os, "replace", spy_replace)
+    with pricing_cache._lock:
+        pricing_cache._prices = {
+            "fal-ai/x": {"unit_price": 0.1, "unit": "image", "currency": "USD"}
+        }
+        pricing_cache._write_to_disk()
+
+    assert len(captured) == 1
+    assert captured[0] != str(fixed_tmp)
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert pricing_cache._CACHE_PATH.exists()
+
+
+def test_clear_during_inflight_refresh_does_not_resurrect_cache(tmp_path):
+    """A refresh in flight when clear() is called must NOT merge its stale
+    results back in or rewrite the on-disk file after the clear."""
+    import threading
+
+    fetch_started = threading.Event()
+    release = threading.Event()
+
+    def blocking_fetch(endpoint_ids, timeout_s=20.0, skip_ids=None):
+        fetch_started.set()
+        release.wait(timeout=2.0)  # block inside the refresh until released
+        return (
+            {"fal-ai/x": {"unit_price": 0.1, "unit": "image", "currency": "USD"}},
+            set(),
+        )
+
+    with patch.object(pricing_cache.fal_pricing, "fetch_all_pricing", blocking_fetch):
+        started = pricing_cache.trigger_refresh_if_stale(["fal-ai/x"])
+        assert started is True
+        assert fetch_started.wait(timeout=2.0)
+
+        # Clear while the refresh is parked inside the network fetch.
+        pricing_cache.clear()
+
+        # Let the refresh finish; its results are now stale and must be dropped.
+        release.set()
+        for t in [
+            t for t in threading.enumerate()
+            if t.name == "fal-gateway-pricing-refresh"
+        ]:
+            t.join(timeout=2.0)
+
+    assert pricing_cache.get("fal-ai/x") is None
+    assert not pricing_cache._CACHE_PATH.exists()
+    assert pricing_cache.is_stale() is True

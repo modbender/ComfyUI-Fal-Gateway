@@ -91,3 +91,32 @@ def test_clear_removes_existing_cache_file(tmp_path, monkeypatch):
 def test_clear_is_noop_when_cache_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(cache, "CACHE_PATH", tmp_path / "openrouter.json")
     assert cache.clear() is False
+
+
+def test_write_uses_unique_tmp_not_shared_suffix(tmp_path, monkeypatch):
+    """Concurrent writers must not share a fixed `.tmp` path."""
+    cache_file = tmp_path / "openrouter.json"
+    monkeypatch.setattr(cache, "CACHE_PATH", cache_file)
+    fixed_tmp = cache_file.with_suffix(".tmp")
+
+    captured: list[str] = []
+    real_replace = os.replace
+
+    def spy_replace(src, dst, *a, **k):
+        captured.append(str(src))
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(cache.os, "replace", spy_replace)
+    cache.write([{"id": "vendor/z", "name": "Z"}])
+
+    assert len(captured) == 1
+    assert captured[0] != str(fixed_tmp)
+
+
+def test_write_round_trips_and_leaves_no_tmp(tmp_path, monkeypatch):
+    cache_file = tmp_path / "openrouter.json"
+    monkeypatch.setattr(cache, "CACHE_PATH", cache_file)
+    cache.write([{"id": "vendor/z", "name": "Z"}])
+    cache.write([{"id": "vendor/z", "name": "Z"}])
+    assert cache.load_if_fresh() == [{"id": "vendor/z", "name": "Z"}]
+    assert list(tmp_path.glob("*.tmp")) == []

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -72,12 +74,29 @@ def write(models: list[dict]) -> None:
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "models": models,
         }
-        tmp = CACHE_PATH.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        tmp.replace(CACHE_PATH)
+        _atomic_write(json.dumps(payload, indent=2))
         _log.info("wrote %d openrouter models to %s", len(models), CACHE_PATH)
     except OSError as exc:
         _log.warning("openrouter cache write failed: %s", exc)
+
+
+def _atomic_write(text: str) -> None:
+    """Write `text` to CACHE_PATH atomically via a unique temp file in the same
+    directory + os.replace, so concurrent writers can't clobber each other's
+    in-progress `.tmp` (same-filesystem rename stays atomic)."""
+    fd, tmp = tempfile.mkstemp(
+        dir=CACHE_PATH.parent, prefix=CACHE_PATH.name + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, CACHE_PATH)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def clear() -> bool:
