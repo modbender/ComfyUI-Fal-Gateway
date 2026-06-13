@@ -41,10 +41,20 @@ SCHEMA_VERSION = 6
 
 
 def load_fallback() -> list[ModelEntry]:
-    """Read the bundled fallback catalog from `src/data/fallback_catalog.json`."""
-    with open(FALLBACK_PATH, encoding="utf-8") as f:
-        data = json.load(f)
-    return [ModelEntry.from_dict(m) for m in data.get("models", [])]
+    """Read the bundled fallback catalog from `src/data/fallback_catalog.json`.
+
+    Best-effort: `_do_load()` calls this first and unconditionally, so a
+    missing or corrupt bundle must not raise through node INPUT_TYPES,
+    `all_models`, or the routes. On any read/parse error we log and return
+    an empty list (matching the defensive style of `load_any`).
+    """
+    try:
+        with open(FALLBACK_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return [ModelEntry.from_dict(m) for m in data.get("models", [])]
+    except (OSError, ValueError, KeyError, ValidationError) as exc:
+        _log.warning("fallback catalog load failed: %s", exc)
+        return []
 
 
 def load_any() -> tuple[list[ModelEntry] | None, bool]:

@@ -117,6 +117,28 @@ async def test_schema_route_includes_pricing_when_cached(client, fake_entry, mon
     assert body["currency"] == "USD"
 
 
+async def test_schema_route_returns_structured_500_on_build_failure(
+    client, fake_entry, monkeypatch
+):
+    """If schema assembly raises after resolve, the frontend gets a JSON
+    `{ok: false, error: ...}` envelope at 500 — not an unhandled aiohttp 500.
+
+    We monkeypatch `pricing_cache.get_for_response` (a genuinely unguarded
+    post-resolve call) rather than `all_models`: the pricing *trigger* block
+    already swallows `all_models` failures by design (best-effort), so the
+    only way to reach the outer guard is via the response-build calls."""
+
+    def boom(eid):
+        raise RuntimeError("pricing cache exploded")
+
+    monkeypatch.setattr(pricing_cache, "get_for_response", boom)
+    res = await client.get(f"/fal_gateway/schema/{_b64(fake_entry.id)}")
+    assert res.status == 500
+    body = await res.json()
+    assert body["ok"] is False
+    assert "schema build failed" in body["error"]
+
+
 # ---- /fal_gateway/health ----------------------------------------------
 
 
@@ -136,14 +158,35 @@ async def test_health_route_reports_no_key_when_unset(client, monkeypatch):
     assert body["fal_key_present"] is False
 
 
+async def test_health_route_returns_503_when_registry_fails(client, monkeypatch):
+    """When the registry load crashed (count == -1), health reports 503 so
+    monitoring can distinguish a dead gateway from a healthy one."""
+
+    def boom():
+        raise RuntimeError("registry load failed")
+
+    monkeypatch.setattr(model_registry, "all_models", boom)
+    res = await client.get("/fal_gateway/health")
+    assert res.status == 503
+    body = await res.json()
+    assert body["model_count"] == -1
+
+
+async def test_health_route_returns_200_when_healthy(client):
+    res = await client.get("/fal_gateway/health")
+    assert res.status == 200
+    body = await res.json()
+    assert body["model_count"] == 1
+
+
 # ---- /fal_gateway/refresh ---------------------------------------------
 
 
 async def test_refresh_route_returns_ok_and_queues_background_work(client, monkeypatch):
     """Refresh is non-blocking: it queues background refreshes and returns
-    200 immediately. `deleted` is always False under SWR — we no longer
-    delete the cache up-front (that would force the next UI request to
-    block on a synchronous fetch)."""
+    200 immediately. The dead `deleted` field was dropped — under SWR we
+    never delete the cache up-front (that would force the next UI request
+    to block on a synchronous fetch)."""
     queued = []
 
     def fake_kick(name, fn):
@@ -157,7 +200,7 @@ async def test_refresh_route_returns_ok_and_queues_background_work(client, monke
     assert res.status == 200
     body = await res.json()
     assert body["ok"] is True
-    assert body["deleted"] is False
+    assert "deleted" not in body
     assert "background" in body["message"].lower()
     assert "fal-catalog-refresh" in queued
     assert "openrouter-refresh" in queued
@@ -195,3 +238,59 @@ async def test_pricing_refresh_clears_cache_and_triggers_refetch(client, monkeyp
     assert body["started"] is True
     assert "Pricing cache cleared" in body["message"]
     assert len(triggered) == 1
+
+
+# ---- CSRF guard on state-changing POST routes -------------------------
+
+
+def _same_origin(client) -> str:
+    """The Origin header that matches `request.host` for this test server."""
+    return f"http://{client.host}:{client.port}"
+
+
+@pytest.mark.parametrize(
+    "route",
+    ["/fal_gateway/refresh", "/fal_gateway/pricing_refresh"],
+)
+async def test_post_routes_reject_cross_origin(client, monkeypatch, route):
+    """A cross-site Origin (host differs from request host) is rejected 403."""
+    from src.storage import _background
+
+    monkeypatch.setattr(_background, "kick_off", lambda name, fn: True)
+    monkeypatch.setattr(pricing_cache, "trigger_refresh_if_stale", lambda ids: True)
+
+    res = await client.post(route, headers={"Origin": "http://evil.example"})
+    assert res.status == 403
+    body = await res.json()
+    assert body["ok"] is False
+    assert "cross-origin" in body["error"]
+
+
+@pytest.mark.parametrize(
+    "route",
+    ["/fal_gateway/refresh", "/fal_gateway/pricing_refresh"],
+)
+async def test_post_routes_allow_no_origin(client, monkeypatch, route):
+    """No Origin header (same-origin XHR / ComfyUI frontend) proceeds."""
+    from src.storage import _background
+
+    monkeypatch.setattr(_background, "kick_off", lambda name, fn: True)
+    monkeypatch.setattr(pricing_cache, "trigger_refresh_if_stale", lambda ids: True)
+
+    res = await client.post(route)
+    assert res.status == 200
+
+
+@pytest.mark.parametrize(
+    "route",
+    ["/fal_gateway/refresh", "/fal_gateway/pricing_refresh"],
+)
+async def test_post_routes_allow_matching_origin(client, monkeypatch, route):
+    """An Origin whose netloc equals request.host proceeds."""
+    from src.storage import _background
+
+    monkeypatch.setattr(_background, "kick_off", lambda name, fn: True)
+    monkeypatch.setattr(pricing_cache, "trigger_refresh_if_stale", lambda ids: True)
+
+    res = await client.post(route, headers={"Origin": _same_origin(client)})
+    assert res.status == 200

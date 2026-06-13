@@ -63,3 +63,17 @@ def test_write_round_trips_and_leaves_no_tmp(tmp_path, monkeypatch):
     assert loaded[0].id == "fal-ai/flux/dev"
     leftover = list(tmp_path.glob("*.tmp"))
     assert leftover == []
+
+
+def test_load_fallback_returns_empty_on_missing_file(tmp_path, monkeypatch):
+    """A missing bundled catalog must not crash node loading — return []."""
+    monkeypatch.setattr(cache, "FALLBACK_PATH", tmp_path / "does_not_exist.json")
+    assert cache.load_fallback() == []
+
+
+def test_load_fallback_returns_empty_on_malformed_json(tmp_path, monkeypatch):
+    """A corrupt bundled catalog must not crash node loading — return []."""
+    bad = tmp_path / "fallback_catalog.json"
+    bad.write_text("{ this is not valid json ]")
+    monkeypatch.setattr(cache, "FALLBACK_PATH", bad)
+    assert cache.load_fallback() == []

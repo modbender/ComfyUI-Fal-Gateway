@@ -16,6 +16,7 @@ import base64
 import binascii
 import logging
 import os
+from urllib.parse import urlparse
 
 from aiohttp import web
 from pydantic import BaseModel
@@ -49,6 +50,18 @@ def _err(message: str, status: int = 400) -> web.Response:
     return web.json_response(ErrorResponse(error=message).model_dump(), status=status)
 
 
+def _reject_cross_origin(request: web.Request) -> web.Response | None:
+    """Block cross-site POSTs (CSRF). If an Origin header is present and its
+    host differs from the request host, reject. Same-origin requests (the
+    ComfyUI frontend) either omit Origin or send a matching one."""
+    origin = request.headers.get("Origin")
+    if origin:
+        origin_host = urlparse(origin).netloc
+        if origin_host and origin_host != request.host:
+            return _err("cross-origin request rejected", status=403)
+    return None
+
+
 def decode_model_id_b64(b64: str) -> str:
     """URL-safe base64 → model_id, restoring stripped padding if needed.
 
@@ -79,6 +92,8 @@ def register_routes(routes: web.RouteTableDef) -> None:
         to block on a synchronous fetch, which is exactly the "stuck"
         symptom this route used to cause.
         """
+        if (resp := _reject_cross_origin(request)) is not None:
+            return resp
         fal_started = _background.kick_off(
             "fal-catalog-refresh", model_registry._refresh_catalog_to_disk
         )
@@ -88,7 +103,6 @@ def register_routes(routes: web.RouteTableDef) -> None:
 
         return _ok(
             RefreshResponse(
-                deleted=False,
                 message=(
                     "Background refresh started "
                     f"(fal: {'queued' if fal_started else 'already running'}, "
@@ -121,24 +135,27 @@ def register_routes(routes: web.RouteTableDef) -> None:
         if entry is None:
             return _err(f"unknown model_id: {model_id}", status=404)
 
-        # Trigger a background pricing refresh on first stale-cache schema
-        # lookup. Subsequent requests during the in-flight refresh are no-ops.
         try:
-            all_ids = [m.id for m in model_registry.all_models()]
-            pricing_cache.trigger_refresh_if_stale(all_ids)
-        except Exception as exc:  # noqa: BLE001 — best-effort
-            _log.debug("pricing refresh trigger failed: %s", exc)
+            # Trigger a background pricing refresh on first stale-cache schema
+            # lookup. Subsequent requests during the in-flight refresh are no-ops.
+            try:
+                all_ids = [m.id for m in model_registry.all_models()]
+                pricing_cache.trigger_refresh_if_stale(all_ids)
+            except Exception as exc:  # noqa: BLE001 — best-effort
+                _log.debug("pricing refresh trigger failed: %s", exc)
 
-        return _ok(
-            SchemaResponse(
-                model_id=entry.id,
-                display_name=entry.display_name,
-                category=entry.category,
-                shape=entry.shape,
-                widgets=[w.to_dict() for w in entry.widgets],
-                **pricing_cache.get_for_response(entry.id),
+            return _ok(
+                SchemaResponse(
+                    model_id=entry.id,
+                    display_name=entry.display_name,
+                    category=entry.category,
+                    shape=entry.shape,
+                    widgets=[w.to_dict() for w in entry.widgets],
+                    **pricing_cache.get_for_response(entry.id),
+                )
             )
-        )
+        except Exception as exc:  # noqa: BLE001 — surface a structured 500
+            return _err(f"schema build failed: {exc}", status=500)
 
     @routes.get("/fal_gateway/health")
     async def health(request: web.Request) -> web.Response:
@@ -148,13 +165,18 @@ def register_routes(routes: web.RouteTableDef) -> None:
             count = len(model_registry.all_models())
         except Exception:  # noqa: BLE001
             count = -1
-        return _ok(HealthResponse(fal_key_present=key_set, model_count=count))
+        status = 503 if count == -1 else 200
+        return _ok(
+            HealthResponse(fal_key_present=key_set, model_count=count), status=status
+        )
 
     @routes.post("/fal_gateway/pricing_refresh")
     async def refresh_pricing(request: web.Request) -> web.Response:
         """Clear pricing.json and trigger a fresh sweep. Used by the
         right-click "Fal-Gateway: refresh catalog cache" menu so the next
         schema lookup re-runs pricing fetch from scratch."""
+        if (resp := _reject_cross_origin(request)) is not None:
+            return resp
         pricing_cache.clear()
         try:
             all_ids = [m.id for m in model_registry.all_models()]
