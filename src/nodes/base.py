@@ -210,8 +210,21 @@ class _FalGatewayNodeBase:
         if entry is None:
             if prompt:
                 payload["prompt"] = prompt
+            cls = type(self)
+            image_sockets = set(cls.image_socket_names()) | set(
+                cls.optional_image_socket_names()
+            )
             for k, v in kwargs.items():
-                if v is None or v == "":
+                if v is None:
+                    continue
+                if k in image_sockets:
+                    # ComfyUI hands us a raw torch.Tensor; it must be uploaded
+                    # to fal's CDN and referenced by URL, not serialized into
+                    # the JSON body. Done before the `v == ""` guard because
+                    # comparing a tensor to "" can raise on some torch builds.
+                    payload["image_url"] = await upload_tensor_image(v)
+                    continue
+                if v == "":
                     continue
                 if k == "seed" and v == -1:
                     v = random.randint(0, 4294967295)
