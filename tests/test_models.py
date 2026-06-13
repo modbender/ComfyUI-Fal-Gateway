@@ -203,8 +203,8 @@ def test_schema_response_pricing_fields_default_to_none():
 
 
 def test_refresh_response_serializes_to_expected_dict():
-    resp = RefreshResponse(deleted=True, message="Cache cleared")
-    assert resp.model_dump() == {"ok": True, "deleted": True, "message": "Cache cleared"}
+    resp = RefreshResponse(message="Cache cleared")
+    assert resp.model_dump() == {"ok": True, "message": "Cache cleared"}
 
 
 def test_health_response_has_no_ok_envelope():

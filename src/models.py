@@ -137,7 +137,6 @@ class RefreshResponse(BaseModel):
     """`POST /fal_gateway/refresh` success body."""
 
     ok: Literal[True] = True
-    deleted: bool
     message: str
 
 
