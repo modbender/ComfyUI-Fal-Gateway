@@ -135,12 +135,19 @@ def _entry_from_raw(raw: dict[str, Any]) -> ModelEntry | None:
     )
 
 
-def _live_fetch() -> list[ModelEntry] | None:
+def _live_fetch() -> tuple[list[ModelEntry] | None, bool]:
+    """Fetch the live catalog. Returns `(models, complete)`.
+
+    `complete` is False when the underlying fetch was partial (some pages or
+    categories gave up after retries) — callers that persist the result use it
+    to avoid overwriting a good cache with a shrunken partial fetch. On total
+    failure returns `(None, False)`.
+    """
     try:
-        per_category = fal_catalog.fetch_active_video_models()
+        per_category, complete = fal_catalog.fetch_active_video_models()
     except Exception as exc:  # noqa: BLE001 — fall through to fallback
         _log.warning("live catalog fetch failed: %s", exc)
-        return None
+        return None, False
 
     out: list[ModelEntry] = []
     for category, raw_list in per_category.items():
@@ -149,8 +156,8 @@ def _live_fetch() -> list[ModelEntry] | None:
             if entry is not None:
                 out.append(entry)
     if not out:
-        return None
-    return out
+        return None, complete
+    return out, complete
 
 
 def _merge(curated: list[ModelEntry], live: list[ModelEntry]) -> list[ModelEntry]:
@@ -175,9 +182,11 @@ def _do_load() -> list[ModelEntry]:
             _background.kick_off("fal-catalog-refresh", _refresh_catalog_to_disk)
         return _merge(fallback, cached)
 
-    live = _live_fetch()
+    live, _complete = _live_fetch()
     if live is not None:
         merged = _merge(fallback, live)
+        # Cold start: no existing cache to shrink, so write even a partial
+        # result — having most models on disk beats an empty cache.
         catalog_cache.write(merged)
         return merged
 
@@ -192,9 +201,15 @@ def _refresh_catalog_to_disk() -> None:
     ComfyUI restart picks up the fresh data, which matches user mental
     model of "refresh writes to cache, restart to see changes"."""
     fallback = catalog_cache.load_fallback()
-    live = _live_fetch()
-    if live is not None:
-        catalog_cache.write(_merge(fallback, live))
+    live, complete = _live_fetch()
+    if live is None:
+        return
+    if not complete:
+        # A partial fetch would shrink an existing good cache. Skip the write;
+        # the current on-disk cache stays intact until a clean fetch succeeds.
+        _log.warning("catalog refresh was partial; skipping cache write to avoid shrinking it")
+        return
+    catalog_cache.write(_merge(fallback, live))
 
 
 def _load() -> list[ModelEntry]:

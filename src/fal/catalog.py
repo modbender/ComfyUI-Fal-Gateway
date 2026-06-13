@@ -85,6 +85,51 @@ def _fetch_page_with_retries(
     return None
 
 
+def _fetch_all_models_complete(
+    category: str | None = None,
+    timeout_s: float = DEFAULT_TIMEOUT_S,
+    limit: int | None = None,
+    with_schemas: bool = False,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Walk all pages of fal's model catalog.
+
+    Returns `(models, complete)` where `complete` is False if any page gave up
+    after retries (a None page) — i.e. the result is partial. Callers that
+    persist the catalog use `complete` to avoid overwriting a good cache with
+    a shrunken partial fetch.
+    """
+    if limit is None:
+        limit = SCHEMA_PAGE_LIMIT if with_schemas else DEFAULT_PAGE_LIMIT
+    out: list[dict[str, Any]] = []
+    cursor: str | None = None
+    complete = True
+    for page_idx in range(MAX_PAGES):
+        page = _fetch_page_with_retries(category, cursor, limit, timeout_s, with_schemas)
+        if page is None:
+            _log.warning(
+                "catalog page %d gave up after retries; returning %d partial entries",
+                page_idx,
+                len(out),
+            )
+            complete = False
+            break
+        models = page.get("models", [])
+        out.extend(models)
+        if not page.get("has_more"):
+            break
+        cursor = page.get("next_cursor")
+        if not cursor:
+            break
+    _log.info(
+        "fetched %d catalog entries (category=%s, pages walked=%d, complete=%s)",
+        len(out),
+        category or "all",
+        page_idx + 1,
+        complete,
+    )
+    return out, complete
+
+
 def fetch_all_models(
     category: str | None = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
@@ -105,34 +150,14 @@ def fetch_all_models(
           ...
         }
       }
+
+    Thin wrapper over `_fetch_all_models_complete` that drops the completeness
+    flag — kept for callers that don't care whether the fetch was partial.
     """
-    if limit is None:
-        limit = SCHEMA_PAGE_LIMIT if with_schemas else DEFAULT_PAGE_LIMIT
-    out: list[dict[str, Any]] = []
-    cursor: str | None = None
-    for page_idx in range(MAX_PAGES):
-        page = _fetch_page_with_retries(category, cursor, limit, timeout_s, with_schemas)
-        if page is None:
-            _log.warning(
-                "catalog page %d gave up after retries; returning %d partial entries",
-                page_idx,
-                len(out),
-            )
-            break
-        models = page.get("models", [])
-        out.extend(models)
-        if not page.get("has_more"):
-            break
-        cursor = page.get("next_cursor")
-        if not cursor:
-            break
-    _log.info(
-        "fetched %d catalog entries (category=%s, pages walked=%d)",
-        len(out),
-        category or "all",
-        page_idx + 1,
+    models, _complete = _fetch_all_models_complete(
+        category=category, timeout_s=timeout_s, limit=limit, with_schemas=with_schemas
     )
-    return out
+    return models
 
 
 _DEFAULT_CATEGORIES = (
@@ -149,11 +174,16 @@ def fetch_active_video_models(
     timeout_s: float = DEFAULT_TIMEOUT_S,
     with_schemas: bool | None = None,
     categories: tuple[str, ...] = _DEFAULT_CATEGORIES,
-) -> dict[str, list[dict[str, Any]]]:
+) -> tuple[dict[str, list[dict[str, Any]]], bool]:
     """Convenience wrapper: pull catalogs for the named fal categories.
 
-    Returns a dict keyed by category, e.g. {"text-to-video": [...], ...}, each
-    holding the active models in that category.
+    Returns `(per_category, complete)`:
+      - `per_category` is a dict keyed by category, e.g. {"text-to-video": [...], ...},
+        each holding the active models in that category.
+      - `complete` is True iff every page of every category was fetched cleanly.
+        A category that raised or returned a partial (None-page) result flips it
+        to False so persisters can avoid overwriting a good cache with a shrunken
+        partial fetch.
 
     Default categories cover video + image (T2V/I2V/T2I/I2I). Pass an explicit
     tuple to narrow scope (e.g. for tests).
@@ -169,17 +199,21 @@ def fetch_active_video_models(
         with_schemas = bool(key) and key != "<your_fal_api_key_here>"
 
     out: dict[str, list[dict[str, Any]]] = {}
+    complete = True
     for category in categories:
         try:
-            raw = fetch_all_models(
+            raw, cat_complete = _fetch_all_models_complete(
                 category=category, timeout_s=timeout_s, with_schemas=with_schemas
             )
         except Exception as exc:  # noqa: BLE001 — caller decides how to recover
             _log.warning("could not fetch category=%s: %s", category, exc)
             out[category] = []
+            complete = False
             continue
+        if not cat_complete:
+            complete = False
         active = [
             m for m in raw if (m.get("metadata") or {}).get("status", "active") == "active"
         ]
         out[category] = active
-    return out
+    return out, complete

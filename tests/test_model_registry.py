@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
+import src.model_registry as model_registry
 from src.model_registry import _CATEGORY_EXCLUDE_PATTERNS, _entry_from_raw
 
 
@@ -112,6 +114,66 @@ def test_entry_from_raw_text_only_model_gets_text_only_modality():
     entry = _entry_from_raw(raw)
     assert entry is not None
     assert entry.input_modalities == ["text"]
+
+
+# ---- C4: partial fetch must not overwrite a good cache --------------------
+
+
+_GOOD_RAW = {
+    "endpoint_id": "fal-ai/flux/dev",
+    "metadata": {
+        "category": "text-to-image",
+        "display_name": "Flux Dev",
+        "status": "active",
+    },
+}
+
+
+def test_background_refresh_skips_write_on_partial_fetch():
+    """A partial background fetch (completeness=False) must NOT call
+    catalog_cache.write — that would shrink an existing good cache."""
+    with patch.object(
+        model_registry, "_live_fetch", return_value=([_entry_from_raw(_GOOD_RAW)], False)
+    ), patch.object(model_registry.catalog_cache, "load_fallback", return_value=[]), \
+         patch.object(model_registry.catalog_cache, "write") as write_mock:
+        model_registry._refresh_catalog_to_disk()
+
+    write_mock.assert_not_called()
+
+
+def test_background_refresh_writes_on_complete_fetch():
+    """A complete background fetch (completeness=True) DOES write."""
+    with patch.object(
+        model_registry, "_live_fetch", return_value=([_entry_from_raw(_GOOD_RAW)], True)
+    ), patch.object(model_registry.catalog_cache, "load_fallback", return_value=[]), \
+         patch.object(model_registry.catalog_cache, "write") as write_mock:
+        model_registry._refresh_catalog_to_disk()
+
+    write_mock.assert_called_once()
+
+
+def test_background_refresh_skips_write_when_live_fetch_fails():
+    """When _live_fetch returns (None, False), there's nothing to write."""
+    with patch.object(
+        model_registry, "_live_fetch", return_value=(None, False)
+    ), patch.object(model_registry.catalog_cache, "load_fallback", return_value=[]), \
+         patch.object(model_registry.catalog_cache, "write") as write_mock:
+        model_registry._refresh_catalog_to_disk()
+
+    write_mock.assert_not_called()
+
+
+def test_live_fetch_reports_incomplete_when_a_category_partial():
+    """_live_fetch threads completeness from fetch_active_video_models."""
+    with patch.object(
+        model_registry.fal_catalog,
+        "fetch_active_video_models",
+        return_value=({"text-to-image": [_GOOD_RAW]}, False),
+    ):
+        models, complete = model_registry._live_fetch()
+    assert complete is False
+    assert models is not None
+    assert models[0].id == "fal-ai/flux/dev"
 
 
 def _minimal_openapi_with_image_url() -> dict:
