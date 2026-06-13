@@ -35,7 +35,14 @@ def kick_off(name: str, target: Callable[[], None]) -> bool:
             with _lock:
                 _in_flight.discard(name)
 
-    threading.Thread(target=_runner, name=name, daemon=True).start()
+    try:
+        threading.Thread(target=_runner, name=name, daemon=True).start()
+    except BaseException:
+        # Thread never started, so _runner's finally won't fire — discard the
+        # name here or this refresh stays wedged until process restart.
+        with _lock:
+            _in_flight.discard(name)
+        raise
     return True
 
 

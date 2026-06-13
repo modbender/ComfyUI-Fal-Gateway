@@ -19,6 +19,8 @@ snapshot variable so the schema route never blocks on a refresh.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +51,9 @@ _prices: dict[str, dict[str, Any]] = {}
 _no_pricing: set[str] = set()
 _fetched_at: datetime | None = None
 _refresh_in_progress: bool = False
+# Bumped by clear(); a refresh whose captured epoch no longer matches has had
+# the cache cleared out from under it and must discard its (now-stale) results.
+_refresh_epoch: int = 0
 
 
 def _load_from_disk() -> None:
@@ -96,9 +101,19 @@ def _write_to_disk() -> None:
             prices=_prices,
             no_pricing=sorted(_no_pricing),
         )
-        tmp = _CACHE_PATH.with_suffix(".tmp")
-        tmp.write_text(cache.model_dump_json(indent=2), encoding="utf-8")
-        tmp.replace(_CACHE_PATH)
+        fd, tmp = tempfile.mkstemp(
+            dir=_CACHE_PATH.parent, prefix=_CACHE_PATH.name + ".", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(cache.model_dump_json(indent=2))
+            os.replace(tmp, _CACHE_PATH)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
         _log.info(
             "wrote pricing cache: %d prices, %d no_pricing",
             len(_prices),
@@ -198,22 +213,28 @@ def _refresh_async(endpoint_ids: list[str]) -> None:
     global _prices, _no_pricing, _fetched_at, _refresh_in_progress
     succeeded = False
     try:
-        skip = set(_no_pricing)  # snapshot — may be empty on first sweep
+        with _lock:
+            epoch = _refresh_epoch  # capture at kickoff
+            skip = set(_no_pricing)  # snapshot — may be empty on first sweep
         prices, newly_no_pricing = fal_pricing.fetch_all_pricing(
             endpoint_ids, skip_ids=skip
         )
         with _lock:
-            # Merge new prices over old (full refresh wins; partial sweep adds).
-            _prices = {**_prices, **prices}
-            _no_pricing = _no_pricing | newly_no_pricing
-            _fetched_at = datetime.now(timezone.utc)
-            _write_to_disk()
-        _log.info(
-            "pricing refresh complete: %d prices total, %d known no_pricing",
-            len(prices),
-            len(newly_no_pricing),
-        )
-        succeeded = True
+            if _refresh_epoch != epoch:
+                # clear() ran while we were fetching — our results are stale.
+                _log.info("pricing refresh discarded: cache cleared mid-refresh")
+            else:
+                # Merge new prices over old (full refresh wins; partial sweep adds).
+                _prices = {**_prices, **prices}
+                _no_pricing = _no_pricing | newly_no_pricing
+                _fetched_at = datetime.now(timezone.utc)
+                _write_to_disk()
+                _log.info(
+                    "pricing refresh complete: %d prices total, %d known no_pricing",
+                    len(prices),
+                    len(newly_no_pricing),
+                )
+                succeeded = True
     except Exception as exc:  # noqa: BLE001 — best-effort
         _log.warning("pricing refresh failed: %s", exc)
     finally:
@@ -227,12 +248,13 @@ def clear() -> None:
     """Reset the in-memory cache and delete the on-disk file. Used by the
     user-triggered "refresh catalog cache" menu so the next schema lookup
     forces a fresh sweep."""
-    global _loaded, _prices, _no_pricing, _fetched_at
+    global _loaded, _prices, _no_pricing, _fetched_at, _refresh_epoch
     with _lock:
         _prices = {}
         _no_pricing = set()
         _fetched_at = None
         _loaded = True  # we just initialised an empty state
+        _refresh_epoch += 1  # signal any in-flight refresh that its results are stale
         if _CACHE_PATH.exists():
             try:
                 _CACHE_PATH.unlink()
@@ -247,9 +269,11 @@ def clear() -> None:
 def _reset_for_testing() -> None:
     """Drop module-level state so tests can rebuild cleanly. Not for runtime use."""
     global _loaded, _prices, _no_pricing, _fetched_at, _refresh_in_progress
+    global _refresh_epoch
     with _lock:
         _loaded = False
         _prices = {}
         _no_pricing = set()
         _fetched_at = None
         _refresh_in_progress = False
+        _refresh_epoch = 0
