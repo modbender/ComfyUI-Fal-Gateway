@@ -126,24 +126,40 @@ def test_load_models_returns_stale_and_kicks_off_background_refresh():
     assert kick_mock.call_args.args[0] == "openrouter-refresh"
 
 
-def test_load_models_falls_through_to_live_fetch_and_writes_back():
-    """Cache empty → synchronous live fetch → write result back to disk."""
-    fresh = [{"id": "vendor/b", "name": "B"}]
+def test_load_models_cold_cache_returns_empty_and_kicks_off_background_refresh():
+    """Cold cache must never block ComfyUI startup on a network fetch.
+    load_models returns [] immediately, does NOT fetch synchronously, and
+    schedules a background refresh so the next start sees fresh data."""
     with patch.object(shared.openrouter_cache, "load_any", return_value=(None, True)), \
-         patch.object(shared.openrouter_catalog, "fetch_all_models", return_value=fresh), \
-         patch.object(shared.openrouter_cache, "write") as write_mock:
-        result = load_models()
-    assert result == fresh
-    write_mock.assert_called_once_with(fresh)
-
-
-def test_load_models_does_not_write_back_empty_fetch_result():
-    """If the live fetch fails (returns []), don't poison the cache with
-    an empty list — leave any older cached file in place so the next
-    successful fetch (or a manual refresh) can repopulate it."""
-    with patch.object(shared.openrouter_cache, "load_any", return_value=(None, True)), \
-         patch.object(shared.openrouter_catalog, "fetch_all_models", return_value=[]), \
-         patch.object(shared.openrouter_cache, "write") as write_mock:
+         patch.object(shared.openrouter_catalog, "fetch_all_models") as fetch_mock, \
+         patch.object(shared._background, "kick_off") as kick_mock:
         result = load_models()
     assert result == []
+    fetch_mock.assert_not_called()  # no synchronous network fetch on the import thread
+    kick_mock.assert_called_once()
+    assert kick_mock.call_args.args[0] == "openrouter-refresh"
+
+
+def test_load_models_cold_cache_does_not_write_synchronously():
+    """Cold cache never writes to disk on the calling thread — the
+    background refresh owns the fetch+write."""
+    with patch.object(shared.openrouter_cache, "load_any", return_value=(None, True)), \
+         patch.object(shared.openrouter_catalog, "fetch_all_models") as fetch_mock, \
+         patch.object(shared.openrouter_cache, "write") as write_mock, \
+         patch.object(shared._background, "kick_off"):
+        result = load_models()
+    assert result == []
+    fetch_mock.assert_not_called()
     write_mock.assert_not_called()
+
+
+def test_load_models_sanitizes_malformed_cached_entries():
+    """A partially corrupt cache (non-dict entries, missing/non-string id)
+    must not crash catalog construction — malformed entries are dropped."""
+    cached = [{"id": "a/b", "name": "x"}, "garbage", {"no_id": 1}, {"id": 123}]
+    with patch.object(shared.openrouter_cache, "load_any", return_value=(cached, False)), \
+         patch.object(shared.openrouter_catalog, "fetch_all_models") as fetch_mock, \
+         patch.object(shared._background, "kick_off"):
+        result = load_models()
+    assert result == [{"id": "a/b", "name": "x"}]
+    fetch_mock.assert_not_called()

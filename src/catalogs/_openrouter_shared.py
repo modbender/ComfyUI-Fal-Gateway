@@ -33,15 +33,24 @@ PROVIDER_DISPLAY_OVERRIDES: dict[str, str] = {
 }
 
 
-def load_models() -> list[dict[str, Any]]:
-    """Stale-while-revalidate load.
+def _sanitize(models: list) -> list[dict[str, Any]]:
+    """Drop entries that aren't well-formed model dicts so a partially
+    corrupt cache can't crash catalog construction at import time."""
+    return [m for m in models if isinstance(m, dict) and isinstance(m.get("id"), str)]
 
-    - Cache present + fresh: return it, no network call.
-    - Cache present + stale: return the stale list immediately, refresh in
-      a background thread so the *next* ComfyUI start sees fresh data. The
-      current dropdown keeps working without waiting on the network.
-    - Cache absent / unreadable: synchronous live fetch (we have nothing
-      else to show, so blocking is acceptable here).
+
+def load_models() -> list[dict[str, Any]]:
+    """Stale-while-revalidate load. Never blocks the import/startup thread
+    on a network fetch.
+
+    - Cache present + fresh: return it (sanitized), no network call.
+    - Cache present + stale: return the stale list immediately (sanitized),
+      refresh in a background thread so the *next* ComfyUI start sees fresh
+      data. The current dropdown keeps working without waiting on network.
+    - Cache absent / unreadable: return empty immediately and kick a
+      background refresh. The dropdown populates on the next ComfyUI start,
+      consistent with the SWR "next restart sees fresh data" design — we
+      never block startup on a cold-cache network fetch.
 
     Returns the FULL model list — callers filter by modality via
     `openrouter_catalog.filter_text_capable` / `filter_vision_capable`.
@@ -50,11 +59,12 @@ def load_models() -> list[dict[str, Any]]:
     if cached is not None:
         if is_stale:
             _background.kick_off("openrouter-refresh", _refresh_to_disk)
-        return cached
-    fresh = openrouter_catalog.fetch_all_models()
-    if fresh:
-        openrouter_cache.write(fresh)
-    return fresh
+        return _sanitize(cached)
+    # Cold cache: never block the import/startup thread on a network fetch.
+    # Kick a background refresh; the dropdown populates on the next ComfyUI
+    # start (consistent with the SWR "next restart sees fresh data" design).
+    _background.kick_off("openrouter-refresh", _refresh_to_disk)
+    return []
 
 
 def _refresh_to_disk() -> None:
