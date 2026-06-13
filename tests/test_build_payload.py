@@ -301,6 +301,83 @@ async def test_build_payload_catalog_path_seed_in_final_api_payload(node):
     assert "messages" in payload  # transformer still builds messages correctly
 
 
+# ---- I2T cold/fallback dispatch (entry is None) image upload ---------------
+#
+# The curated `vision` catalog dispatches to `openrouter/router/vision`, which
+# is absent from the bundled fallback catalog. On cold-cache / offline,
+# model_registry.get(...) returns None, so _build_payload takes the
+# `entry is None` branch. The ComfyUI `image` kwarg arrives as a raw
+# torch.Tensor; it must be uploaded to `image_url`, not stuffed into the JSON.
+# Doing the naive `v == ""` check on a tensor also raises
+# "Boolean value of Tensor ... is ambiguous", so the upload has to happen
+# BEFORE that check.
+
+
+async def test_build_payload_entry_none_uploads_image_tensor():
+    """I2T cold/fallback path: a torch.Tensor image socket value is uploaded
+    via upload_tensor_image and lands at `image_url`; the raw tensor never
+    leaks into the payload, and other static widgets survive."""
+    import torch
+
+    sentinel = "https://fal.cdn/uploaded.png"
+    tensor = torch.zeros(1, 8, 8, 3)
+    upload = AsyncMock(return_value=sentinel)
+    with patch("src.nodes.base.upload_tensor_image", new=upload):
+        payload = await FalGatewayI2T()._build_payload(
+            None,
+            "describe this animal",
+            {"image": tensor, "system_prompt": "Be terse.", "seed": 7},
+        )
+
+    assert payload["image_url"] == sentinel
+    upload.assert_awaited_once_with(tensor)
+    assert payload["prompt"] == "describe this animal"
+    assert payload["system_prompt"] == "Be terse."
+    assert payload["seed"] == 7
+    assert "image" not in payload
+    # no raw tensor anywhere in the payload
+    for v in payload.values():
+        assert not isinstance(v, torch.Tensor)
+
+
+async def test_build_payload_entry_none_does_not_leak_raw_tensor():
+    """REGRESSION: the old entry=None branch stuffed the raw torch.Tensor
+    straight into `payload["image"]` (and on some torch versions the
+    `v == ""` guard raised `RuntimeError: Boolean value of Tensor ... is
+    ambiguous` before that). Building with a tensor must now neither raise nor
+    leak the tensor under its socket name."""
+    import torch
+
+    tensor = torch.zeros(1, 8, 8, 3)
+    with patch("src.nodes.base.upload_tensor_image",
+               new=AsyncMock(return_value="https://fal.cdn/uploaded.png")):
+        # Must not raise.
+        payload = await FalGatewayI2T()._build_payload(
+            None,
+            "describe",
+            {"image": tensor},
+        )
+    assert "image" not in payload
+    assert payload["image_url"] == "https://fal.cdn/uploaded.png"
+
+
+async def test_build_payload_entry_none_skips_unwired_image_socket():
+    """An unwired image socket arrives as None and must be skipped cleanly —
+    no upload attempt, no `image_url` key."""
+    upload = AsyncMock(return_value="https://fal.cdn/uploaded.png")
+    with patch("src.nodes.base.upload_tensor_image", new=upload):
+        payload = await FalGatewayI2T()._build_payload(
+            None,
+            "describe",
+            {"image": None, "system_prompt": "Be terse."},
+        )
+
+    upload.assert_not_awaited()
+    assert "image_url" not in payload
+    assert "image" not in payload
+    assert payload["system_prompt"] == "Be terse."
+
+
 async def test_build_payload_no_transform_for_other_endpoints(node):
     """Non-openrouter endpoints must NOT get the messages-shape transform applied."""
     entry = _t2v_entry([])
