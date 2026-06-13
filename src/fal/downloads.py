@@ -25,6 +25,8 @@ from typing import Any
 import aiohttp
 import numpy as np
 
+from ._http import validate_fetch_url
+
 
 _log = logging.getLogger("fal_gateway.downloads")
 _DOWNLOAD_TIMEOUT_S = 600.0  # 10 min for very long videos
@@ -33,6 +35,7 @@ _FFMPEG_TIMEOUT_S = 60.0
 
 
 async def _download_to_tempfile(url: str) -> str:
+    validate_fetch_url(url)
     fd, path = tempfile.mkstemp(suffix=".mp4", prefix="falgw_")
     os.close(fd)
     timeout = aiohttp.ClientTimeout(total=_DOWNLOAD_TIMEOUT_S)
