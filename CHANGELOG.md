@@ -2,6 +2,24 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.5.0](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.4.0...v0.5.0) (2026-06-17)
+
+
+### Features
+
+* add CSRF and SSRF guards to gateway routes and downloads ([44c48b4](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/44c48b44f1a208e00acb19a2985b2cb559863ade))
+
+
+### Bug Fixes
+
+* bound fal queue wait to stop infinite hang on zero credits ([73fcc40](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/73fcc409a74808147ba4fd7b01394790ed2e0365))
+* harden background refresh dedupe, pricing clear race, and cache writes ([45a28cf](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/45a28cfe8dab5236d980d944ea2077dd3ca80da6))
+* report 503 on health-check registry failure and drop dead deleted field ([41c4e60](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/41c4e60baf7ce560cc511f6ccec67e248d0a5032))
+* return structured errors and guard fallback catalog load ([ee25093](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/ee25093230d7933cb309759deea17f2727ab872d))
+* skip catalog cache write on partial fetch ([7ebd2e2](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/7ebd2e29fa45291f241d699a8567c4f71777aa68))
+* stop synchronous OpenRouter fetch blocking ComfyUI startup ([ac9b418](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/ac9b418cc5cdef9bcb3f7e6a4a4a0d5c1ff07507))
+* upload image tensor on I2T catalog/fallback dispatch path ([d082f52](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/d082f521c698be2c658e21a4c6af7e0f77279f52))
+
 ## [0.4.0](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.3.7...v0.4.0) (2026-05-22)
 
 
