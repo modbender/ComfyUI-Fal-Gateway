@@ -5,8 +5,9 @@ Filters: category=text-to-video / image-to-video / etc.
 Pagination: cursor-based via `next_cursor` + `has_more`.
 Auth: optional. Auth raises rate limits (see `src.fal._http.build_request`).
 
-Synchronous on purpose: this fires once at ComfyUI startup; an async path
-would force the caller to be async too, complicating module init.
+Synchronous on purpose: callers run it on a background thread (see
+`model_registry`), never on ComfyUI's startup/UI path, so a slow or
+rate-limited fetch can't freeze the UI.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from ._http import (
     MAX_PAGES,
     RETRY_BACKOFF_S,
     build_request,
+    retry_delay_s,
 )
 
 
@@ -34,6 +36,7 @@ _log = logging.getLogger("fal_gateway.catalog")
 CATALOG_URL = f"{FAL_API_BASE}/models"
 DEFAULT_PAGE_LIMIT = 50  # used when with_schemas=False; the API rejects 50 with schemas
 SCHEMA_PAGE_LIMIT = 10  # API caps page size at ~10 when expand=openapi-3.0
+INTER_PAGE_SLEEP_S = 0.25  # pace pagination walks so we trip fal's rate limiter less often
 
 
 def _fetch_page(
@@ -65,22 +68,26 @@ def _fetch_page_with_retries(
     with_schemas: bool,
 ) -> dict[str, Any] | None:
     last_err: Exception | None = None
-    for attempt, backoff in enumerate((0.0,) + RETRY_BACKOFF_S):
-        if backoff > 0:
-            time.sleep(backoff)
+    for attempt in range(len(RETRY_BACKOFF_S) + 1):
+        retries_left = attempt < len(RETRY_BACKOFF_S)
         try:
             return _fetch_page(category, cursor, limit, timeout_s, with_schemas=with_schemas)
         except urllib_error.HTTPError as exc:
             last_err = exc
-            if exc.code == 429:
-                _log.info("rate-limited (429) on attempt %d; backing off", attempt + 1)
-                continue
-            _log.warning("catalog page failed (HTTP %d): %s", exc.code, exc)
-            return None
+            if exc.code != 429:
+                _log.warning("catalog page failed (HTTP %d): %s", exc.code, exc)
+                return None
+            if not retries_left:
+                break
+            delay = retry_delay_s(exc, RETRY_BACKOFF_S[attempt])
+            _log.info("rate-limited (429) on attempt %d; backing off %.1fs", attempt + 1, delay)
         except (urllib_error.URLError, TimeoutError) as exc:
             last_err = exc
             _log.warning("catalog page network error on attempt %d: %s", attempt + 1, exc)
-            continue
+            if not retries_left:
+                break
+            delay = RETRY_BACKOFF_S[attempt]
+        time.sleep(delay)
     _log.warning("catalog page exhausted retries: %s", last_err)
     return None
 
@@ -104,6 +111,8 @@ def _fetch_all_models_complete(
     cursor: str | None = None
     complete = True
     for page_idx in range(MAX_PAGES):
+        if page_idx > 0 and INTER_PAGE_SLEEP_S > 0:
+            time.sleep(INTER_PAGE_SLEEP_S)
         page = _fetch_page_with_retries(category, cursor, limit, timeout_s, with_schemas)
         if page is None:
             _log.warning(

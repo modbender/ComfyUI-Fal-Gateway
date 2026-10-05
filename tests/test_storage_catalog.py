@@ -77,3 +77,37 @@ def test_load_fallback_returns_empty_on_malformed_json(tmp_path, monkeypatch):
     bad.write_text("{ this is not valid json ]")
     monkeypatch.setattr(cache, "FALLBACK_PATH", bad)
     assert cache.load_fallback() == []
+
+
+def test_partial_cache_is_reported_stale(tmp_path, monkeypatch):
+    """A cache written from a partial (rate-limited) fetch is served but marked
+    stale, so the next load kicks a background refresh to complete it."""
+    monkeypatch.setattr(cache, "CACHE_PATH", tmp_path / "catalog.json")
+    cache.write([_entry()], complete=False)
+
+    models, is_stale = cache.load_any()
+    assert models is not None and models[0].id == "fal-ai/flux/dev"
+    assert is_stale is True
+    assert cache.load_if_fresh() is None
+
+
+def test_complete_cache_is_fresh(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "CACHE_PATH", tmp_path / "catalog.json")
+    cache.write([_entry()])
+
+    _models, is_stale = cache.load_any()
+    assert is_stale is False
+
+
+def test_cache_without_complete_field_loads_as_complete(tmp_path, monkeypatch):
+    """Caches written before the `complete` flag existed stay fresh."""
+    fake_cache = tmp_path / "catalog.json"
+    fake_cache.write_text(json.dumps({
+        "schema_version": cache.SCHEMA_VERSION,
+        "fetched_at": "2026-05-01T00:00:00+00:00",
+        "models": [_entry().to_dict()],
+    }))
+    monkeypatch.setattr(cache, "CACHE_PATH", fake_cache)
+
+    _models, is_stale = cache.load_any()
+    assert is_stale is False

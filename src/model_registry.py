@@ -1,10 +1,14 @@
 """Model registry — in-memory list of fal.ai models with display + filter helpers.
 
 Loading order on first access (delegated to `storage.catalog`):
-  1. `cache/catalog.json` if present, fresh, and schema-current.
-  2. Live fetch via `fal.catalog.fetch_active_video_models()` (blocks once,
-     then persisted to cache for subsequent restarts).
-  3. `src/data/fallback_catalog.json` (bundled, offline-bootable last resort).
+  1. `cache/catalog.json` if present and schema-current (a stale or partial
+     cache is served as-is and refreshed on a background thread).
+  2. Cold start (no usable cache): serve `src/data/fallback_catalog.json`
+     immediately and run the live fetch via
+     `fal.catalog.fetch_active_video_models()` on a background thread. The
+     fetch can take minutes when fal rate-limits (429), so it must never run
+     on ComfyUI's startup/UI path. When it lands, the result is persisted
+     and swapped into memory, so a browser refresh shows the full list.
 
 Curated entries from the bundled fallback override live entries of the same
 endpoint id — better-than-default widget specs for common models (Seedance,
@@ -30,6 +34,9 @@ _log = logging.getLogger("fal_gateway.registry")
 
 _lock = threading.Lock()
 _models: list[ModelEntry] | None = None
+# True while a cold-start background fetch is filling in the catalog — the
+# in-memory list is only the bundled fallback until it finishes.
+_cold_fetch_pending = False
 
 
 # Single source of truth for category-level fal taxonomy. Adding a new category
@@ -182,16 +189,62 @@ def _do_load() -> list[ModelEntry]:
             _background.kick_off("fal-catalog-refresh", _refresh_catalog_to_disk)
         return _merge(fallback, cached)
 
-    live, _complete = _live_fetch()
-    if live is not None:
-        merged = _merge(fallback, live)
-        # Cold start: no existing cache to shrink, so write even a partial
-        # result — having most models on disk beats an empty cache.
-        catalog_cache.write(merged)
-        return merged
-
-    _log.info("falling back to bundled %d-model catalog", len(fallback))
+    # Cold start: never block on the network here — this runs inside node
+    # INPUT_TYPES / route handlers, and a rate-limited fetch can take minutes.
+    # Serve the bundled catalog now; the background fetch swaps in the full
+    # list when it finishes.
+    global _cold_fetch_pending
+    from .storage import _background
+    _cold_fetch_pending = True
+    try:
+        _background.kick_off("fal-catalog-refresh", _cold_start_fetch)
+    except BaseException:
+        _cold_fetch_pending = False
+        raise
+    _log.info(
+        "no catalog cache yet; serving bundled %d-model catalog while the "
+        "full catalog downloads in the background",
+        len(fallback),
+    )
     return fallback
+
+
+def _cold_start_fetch() -> None:
+    """Background worker for a cold start: fetch the catalog, persist it, and
+    swap it into memory so newly-loaded node definitions see the full list
+    without a ComfyUI restart."""
+    global _models, _cold_fetch_pending
+    try:
+        fallback = catalog_cache.load_fallback()
+        live, complete = _live_fetch()
+        if live is None:
+            _log.warning("background catalog fetch failed; keeping bundled catalog")
+            return
+        merged = _merge(fallback, live)
+        # No existing cache to shrink, so write even a partial result — having
+        # most models on disk beats none. It's flagged partial, so the next
+        # load treats it as stale and refreshes it in the background.
+        catalog_cache.write(merged, complete=complete)
+        with _lock:
+            # Only swap if the registry is still loaded; after `reload()` the
+            # next access reads the cache we just wrote.
+            if _models is not None:
+                _models = merged
+        _log.info(
+            "background catalog fetch done: %d models (%s); refresh the browser "
+            "to see them in the dropdowns",
+            len(merged),
+            "complete" if complete else "partial",
+        )
+    finally:
+        _cold_fetch_pending = False
+
+
+def cold_fetch_pending() -> bool:
+    """True while the in-memory catalog is only the bundled fallback and the
+    cold-start fetch is still running. Callers that sweep every model id
+    (pricing) wait for it so they don't sweep just the fallback subset."""
+    return _cold_fetch_pending
 
 
 def _refresh_catalog_to_disk() -> None:

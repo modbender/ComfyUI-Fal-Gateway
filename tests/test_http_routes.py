@@ -117,6 +117,35 @@ async def test_schema_route_includes_pricing_when_cached(client, fake_entry, mon
     assert body["currency"] == "USD"
 
 
+async def test_schema_route_defers_pricing_sweep_during_cold_catalog_fetch(
+    client, fake_entry, monkeypatch
+):
+    """While the cold-start catalog fetch runs, the registry only holds the
+    bundled fallback — sweeping pricing over that subset would mark pricing
+    fresh for 30 days without the rest, so the trigger waits."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(model_registry, "cold_fetch_pending", lambda: True)
+    monkeypatch.setattr(
+        pricing_cache, "trigger_refresh_if_stale", lambda ids: calls.append(ids) or True
+    )
+    res = await client.get(f"/fal_gateway/schema/{_b64(fake_entry.id)}")
+    assert res.status == 200
+    assert calls == []
+
+
+async def test_schema_route_triggers_pricing_sweep_once_catalog_loaded(
+    client, fake_entry, monkeypatch
+):
+    calls: list[list[str]] = []
+    monkeypatch.setattr(model_registry, "cold_fetch_pending", lambda: False)
+    monkeypatch.setattr(
+        pricing_cache, "trigger_refresh_if_stale", lambda ids: calls.append(ids) or True
+    )
+    res = await client.get(f"/fal_gateway/schema/{_b64(fake_entry.id)}")
+    assert res.status == 200
+    assert calls == [[fake_entry.id]]
+
+
 async def test_schema_route_returns_structured_500_on_build_failure(
     client, fake_entry, monkeypatch
 ):

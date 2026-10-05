@@ -107,6 +107,11 @@ class CatalogCacheFile(BaseModel):
     schema_version: int
     fetched_at: str = Field(description="ISO 8601 timestamp of last successful fetch.")
     models: list[dict[str, Any]] = Field(default_factory=list)
+    complete: bool = Field(
+        default=True,
+        description="False when the fetch that wrote this file was partial (e.g. "
+        "rate-limited); such a cache is treated as stale so it gets refreshed.",
+    )
 
 
 # =====================================================================

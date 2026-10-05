@@ -205,3 +205,72 @@ def _minimal_openapi_with_image_url() -> dict:
             }
         },
     }
+
+
+# ---- Issue #16: cold start must not block on a (rate-limited) live fetch ----
+
+
+def test_cold_start_serves_fallback_without_blocking_on_live_fetch():
+    """No cache → return the bundled catalog immediately and run the live
+    fetch in the background instead of inline (where 429 backoffs froze the UI)."""
+    fallback = [_entry_from_raw(_GOOD_RAW)]
+    with patch.object(model_registry.catalog_cache, "load_fallback", return_value=fallback), \
+         patch.object(model_registry.catalog_cache, "load_any", return_value=(None, True)), \
+         patch.object(model_registry, "_live_fetch") as live_mock, \
+         patch("src.storage._background.kick_off") as kick_mock:
+        result = model_registry._do_load()
+
+    assert result == fallback
+    live_mock.assert_not_called()
+    kick_mock.assert_called_once_with(
+        "fal-catalog-refresh", model_registry._cold_start_fetch
+    )
+    assert model_registry.cold_fetch_pending() is True
+    model_registry._cold_fetch_pending = False
+
+
+def test_cold_start_fetch_clears_pending_flag_even_on_failure():
+    model_registry._cold_fetch_pending = True
+    with patch.object(model_registry, "_live_fetch", side_effect=RuntimeError("boom")), \
+         patch.object(model_registry.catalog_cache, "load_fallback", return_value=[]):
+        try:
+            model_registry._cold_start_fetch()
+        except RuntimeError:
+            pass
+    assert model_registry.cold_fetch_pending() is False
+
+
+def test_cold_start_fetch_persists_and_swaps_in_memory_models():
+    live = [_entry_from_raw(_GOOD_RAW)]
+    model_registry.reload()
+    try:
+        with model_registry._lock:
+            model_registry._models = []  # registry loaded with an empty fallback
+        with patch.object(model_registry, "_live_fetch", return_value=(live, True)), \
+             patch.object(model_registry.catalog_cache, "load_fallback", return_value=[]), \
+             patch.object(model_registry.catalog_cache, "write") as write_mock:
+            model_registry._cold_start_fetch()
+
+        write_mock.assert_called_once_with(live, complete=True)
+        assert [m.id for m in model_registry._models] == ["fal-ai/flux/dev"]
+    finally:
+        model_registry.reload()
+
+
+def test_cold_start_fetch_marks_partial_cache_incomplete():
+    live = [_entry_from_raw(_GOOD_RAW)]
+    with patch.object(model_registry, "_live_fetch", return_value=(live, False)), \
+         patch.object(model_registry.catalog_cache, "load_fallback", return_value=[]), \
+         patch.object(model_registry.catalog_cache, "write") as write_mock:
+        model_registry._cold_start_fetch()
+
+    write_mock.assert_called_once_with(live, complete=False)
+
+
+def test_cold_start_fetch_keeps_fallback_when_live_fetch_fails():
+    with patch.object(model_registry, "_live_fetch", return_value=(None, False)), \
+         patch.object(model_registry.catalog_cache, "load_fallback", return_value=[]), \
+         patch.object(model_registry.catalog_cache, "write") as write_mock:
+        model_registry._cold_start_fetch()
+
+    write_mock.assert_not_called()

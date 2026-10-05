@@ -83,12 +83,15 @@ def load_any() -> tuple[list[ModelEntry] | None, bool]:
         )
         return None, True
     models = [ModelEntry.from_dict(raw) for raw in cache.models]
-    is_stale = age > CACHE_TTL_SECONDS
+    # A partial cache (cold-start fetch that got rate-limited) is always
+    # stale so the next load kicks a background refresh to fill it in.
+    is_stale = age > CACHE_TTL_SECONDS or not cache.complete
     _log.info(
-        "loaded %d models from cache (age %.1f hours, %s)",
+        "loaded %d models from cache (age %.1f hours, %s%s)",
         len(models),
         age / 3600,
         "stale" if is_stale else "fresh",
+        "" if cache.complete else ", partial",
     )
     return models, is_stale
 
@@ -104,14 +107,19 @@ def load_if_fresh() -> list[ModelEntry] | None:
     return models
 
 
-def write(models: list[ModelEntry]) -> None:
-    """Atomic write to `cache/catalog.json` (temp file + rename)."""
+def write(models: list[ModelEntry], complete: bool = True) -> None:
+    """Atomic write to `cache/catalog.json` (temp file + rename).
+
+    `complete=False` marks the file as a partial fetch; `load_any` then
+    reports it stale so a later background refresh replaces it.
+    """
     try:
         CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         cache = CatalogCacheFile(
             schema_version=SCHEMA_VERSION,
             fetched_at=datetime.now(timezone.utc).isoformat(),
             models=[m.to_dict() for m in models],
+            complete=complete,
         )
         _atomic_write(cache.model_dump_json(indent=2))
         _log.info("wrote %d models to %s", len(models), CACHE_PATH)
