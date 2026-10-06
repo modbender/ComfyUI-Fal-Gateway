@@ -2,6 +2,13 @@
 
 All notable changes to ComfyUI-Fal-Gateway will be documented here. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning: [SemVer](https://semver.org/).
 
+## [0.5.1](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.5.0...v0.5.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* don't block ComfyUI startup on a rate-limited catalog fetch ([#17](https://github.com/modbender/ComfyUI-Fal-Gateway/issues/17)) ([a7c4d30](https://github.com/modbender/ComfyUI-Fal-Gateway/commit/a7c4d30c11bc38c6e79f362f2c46b7d914b65e52)), closes [#16](https://github.com/modbender/ComfyUI-Fal-Gateway/issues/16)
+
 ## [0.5.0](https://github.com/modbender/ComfyUI-Fal-Gateway/compare/v0.4.0...v0.5.0) (2026-06-17)
 
 
