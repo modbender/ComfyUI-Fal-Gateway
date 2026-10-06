@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlparse
 
@@ -21,6 +22,7 @@ FAL_API_BASE = "https://api.fal.ai/v1"
 DEFAULT_TIMEOUT_S = 20.0
 MAX_PAGES = 100  # safety: avoid runaway loops in pagination walks
 RETRY_BACKOFF_S = (1.0, 3.0, 8.0)  # progressive sleeps on 429
+MAX_RETRY_AFTER_S = 60.0  # cap on a server-sent Retry-After so one 429 can't stall for ages
 
 _PLACEHOLDER_KEY = "<your_fal_api_key_here>"
 
@@ -68,6 +70,26 @@ def validate_fetch_url(url: str) -> None:
         or ip.is_multicast
     ):
         raise ValueError(f"refusing to fetch internal/reserved IP: {host!r}")
+
+
+def retry_delay_s(exc: urllib_error.HTTPError, default: float) -> float:
+    """Seconds to wait before retrying a 429.
+
+    Honours a numeric `Retry-After` header when fal sends one (capped at
+    `MAX_RETRY_AFTER_S`), else falls back to `default` from our backoff
+    schedule. HTTP-date forms of Retry-After are ignored — fal sends seconds.
+    """
+    headers = getattr(exc, "headers", None)
+    raw = headers.get("Retry-After") if headers is not None else None
+    if raw is None:
+        return default
+    try:
+        value = float(str(raw).strip())
+    except ValueError:
+        return default
+    if value < 0:
+        return default
+    return min(max(value, default), MAX_RETRY_AFTER_S)
 
 
 def build_request(url: str) -> urllib_request.Request:

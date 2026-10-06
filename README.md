@@ -125,6 +125,10 @@ Every Fal-Gateway node has a right-click option **"Fal-Gateway: refresh catalog 
 
 The cache is wiped + a background fetch starts. Cost labels live-update via websocket once it completes; the model dropdown options take effect on next ComfyUI restart (or on freshly-placed nodes).
 
+## First launch
+
+On the very first launch (no `cache/catalog.json` yet) the dropdowns start with the bundled set of curated models while the full fal catalog downloads in the background. ComfyUI stays responsive the whole time, even if fal rate-limits the download. When the log shows `background catalog fetch done`, refresh the browser to see every model. If the download was cut short by rate limits, the partial list is saved and filled in by another background refresh on the next launch.
+
 ## Diagnostic
 
 ```bash

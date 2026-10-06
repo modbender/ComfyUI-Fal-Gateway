@@ -138,9 +138,13 @@ def register_routes(routes: web.RouteTableDef) -> None:
         try:
             # Trigger a background pricing refresh on first stale-cache schema
             # lookup. Subsequent requests during the in-flight refresh are no-ops.
+            # Skipped while the cold-start catalog fetch is running: the
+            # registry only holds the bundled fallback then, and a sweep over
+            # that subset would mark pricing fresh without the rest.
             try:
-                all_ids = [m.id for m in model_registry.all_models()]
-                pricing_cache.trigger_refresh_if_stale(all_ids)
+                if not model_registry.cold_fetch_pending():
+                    all_ids = [m.id for m in model_registry.all_models()]
+                    pricing_cache.trigger_refresh_if_stale(all_ids)
             except Exception as exc:  # noqa: BLE001 — best-effort
                 _log.debug("pricing refresh trigger failed: %s", exc)
 
