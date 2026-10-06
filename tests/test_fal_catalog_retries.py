@@ -7,7 +7,8 @@ from email.message import Message
 from unittest.mock import patch
 from urllib import error as urllib_error
 
-from src.fal import _http, catalog as fal_catalog
+from src.fal import _http
+from src.fal import catalog as fal_catalog
 
 
 def _http_error(code: int, retry_after: str | None = None) -> urllib_error.HTTPError:

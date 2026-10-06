@@ -16,7 +16,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install ruff
-        run: pip install "ruff>=0.5"
+        # ruff 0.16 enabled many more default rules; pin until the codebase is migrated.
+        run: pip install "ruff>=0.5,<0.16"
       - name: ruff check
         run: ruff check src/ tests/
 
